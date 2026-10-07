@@ -1,0 +1,46 @@
+# Node.js
+node_modules/
+
+# Environment (contains secrets)
+.env
+.env.*
+!.env.example
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Flutter/Dart generated
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/build/
+mobile/.idea/
+mobile/ios/Pods/
+mobile/android/.gradle/
+mobile/android/app/debug/
+mobile/android/app/release/
+mobile/android/local.properties
+mobile/.metadata
+mobile/mobile.iml
+
+# Flutter devtools
+mobile/.flutter-devtools/
+
+# Uploaded voice notes
+backend/uploads/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/*
+!.vscode/extensions.json
