@@ -1,0 +1,43 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Environment variables (contains secrets!)
+.env
+.env.local
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Flutter/Dart
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/build/
+mobile/.idea/
+mobile/ios/Pods/
+mobile/android/.gradle/
+mobile/android/app/debug/
+mobile/android/app/release/
+mobile/android/local.properties
+
+# Flutter run artifacts
+mobile/.flutter-devtools/
+
+# Uploaded voice notes
+backend/uploads/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# VS Code
+.vscode/*
+!.vscode/extensions.json
