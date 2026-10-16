@@ -1,5 +1,5 @@
 // ============================================================
-// AgriMatch Backend - USSD/SMS Agricultural Labor Marketplace
+// SkillLink Backend - USSD/SMS Skilled Worker Marketplace
 // ============================================================
 
 require('dotenv').config();
@@ -7,9 +7,9 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const africastalking = require('africastalking');
 const locations = require('./locations');
-
+const skills = require('./skills');
 const db = require('./db');
-const { workersRepo, jobsRepo, matchesRepo, voiceNotesRepo } = db;
+const { workersRepo, requestsRepo, matchesRepo, voiceNotesRepo } = db;
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -19,8 +19,7 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// Initialize Africa's Talking, but don't crash if the key is invalid.
-// SMS will be simulated (logged to console) until a valid key is provided.
+// Africa's Talking is optional — app runs without it
 let sms = null;
 try {
   if (process.env.AT_API_KEY) {
@@ -34,7 +33,7 @@ try {
     console.log('[AT] No AT_API_KEY set — SMS will be simulated');
   }
 } catch (err) {
-  console.error('[AT] Africa\'s Talking init failed — SMS will be simulated:', err.message);
+  console.error('[AT] Africa\'s Talking init failed:', err.message);
   sms = null;
 }
 
@@ -55,8 +54,7 @@ function getCoordinates(village) {
 }
 
 // ============================================================
-// HELPER: Normalize phone number from URL params or body
-// Handles the case where '+' got converted to '=' or space.
+// HELPER: Normalize phone number
 // ============================================================
 
 function normalizePhone(raw) {
@@ -93,65 +91,27 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
 // ============================================================
 
 app.get('/', (req, res) => {
-  res.send('AgriMatch backend is running.');
+  res.send('SkillLink backend is running.');
 });
 
 // ============================================================
 // REST API FOR MOBILE APP
 // ============================================================
 
-// Get a worker's profile by phone number
-// Uses a wildcard so URL-encoded phones (e.g. %2B...) match correctly.
-app.get('/api/workers/*phone', (req, res) => {
-  const wildcard = req.params.phone;
-  const rawPhone = Array.isArray(wildcard) ? wildcard.join('/') : wildcard;
-  const decoded = decodeURIComponent(rawPhone);
-  const phone = normalizePhone(decoded);
-
-  const worker = workersRepo.findByPhone(phone);
-
-  if (!worker) {
-    return res.status(404).json({ error: 'Worker not found' });
-  }
-
-  res.json(worker);
+// Get all trades (for the Flutter dropdown)
+app.get('/api/trades', (req, res) => {
+  const categories = Object.entries(skills.CATEGORIES).map(([key, cat]) => ({
+    key,
+    label: cat.label,
+    trades: skills.getTradesByCategory(key).map((t) => ({
+      key: t.key,
+      label: t.label
+    }))
+  }));
+  res.json(categories);
 });
 
-// Register a new worker (called from the Flutter app)
-app.post('/api/workers', (req, res) => {
-  const name = req.body.name;
-  const village = req.body.village;
-  const skill = req.body.skill;
-  const phone = normalizePhone(req.body.phone);
-
-  if (!phone || !name || !village || !skill) {
-    return res.status(400).json({
-      error: 'Missing required fields: phone, name, village, skill'
-    });
-  }
-
-  if (!isKnownVillage(village)) {
-    return res.status(400).json({ error: `Unknown village: ${village}` });
-  }
-
-  workersRepo.upsert({
-    phone,
-    name,
-    village,
-    skill,
-    available: true,
-    registeredAt: new Date().toISOString()
-  });
-
-  console.log(`[API] Worker registered: ${name} (${phone}) from ${village}`);
-
-  res.status(201).json({
-    message: 'Worker registered',
-    worker: workersRepo.findByPhone(phone)
-  });
-});
-
-// Get all known villages (used by the app to populate dropdowns)
+// Get all known villages
 app.get('/api/villages', (req, res) => {
   const villages = Object.keys(locations).map((key) => ({
     name: key.charAt(0).toUpperCase() + key.slice(1),
@@ -161,21 +121,97 @@ app.get('/api/villages', (req, res) => {
   res.json(villages);
 });
 
+// Get a worker's profile by phone number
+app.get('/api/workers/*phone', (req, res) => {
+  const wildcard = req.params.phone;
+  const rawPhone = Array.isArray(wildcard) ? wildcard.join('/') : wildcard;
+  const decoded = decodeURIComponent(rawPhone);
+  const phone = normalizePhone(decoded);
+
+  const worker = workersRepo.findByPhone(phone);
+  if (!worker) {
+    return res.status(404).json({ error: 'Worker not found' });
+  }
+  res.json(worker);
+});
+
+// Register a new worker
+app.post('/api/workers', (req, res) => {
+  const name = req.body.name;
+  const village = req.body.village;
+  const skillKey = req.body.skill;
+  const phone = normalizePhone(req.body.phone);
+
+  if (!phone || !name || !village || !skillKey) {
+    return res.status(400).json({
+      error: 'Missing required fields: phone, name, village, skill'
+    });
+  }
+
+  if (!isKnownVillage(village)) {
+    return res.status(400).json({ error: `Unknown village: ${village}` });
+  }
+
+  if (!skills.isValidTradeKey(skillKey)) {
+    return res.status(400).json({ error: `Unknown skill: ${skillKey}` });
+  }
+
+  workersRepo.upsert({
+    phone,
+    name,
+    village,
+    skill: skillKey,
+    available: true,
+    registeredAt: new Date().toISOString()
+  });
+
+  const trade = skills.getTradeByKey(skillKey);
+  console.log(`[API] Worker registered: ${name} (${phone}) from ${village} as ${trade.label}`);
+
+  res.status(201).json({
+    message: 'Worker registered',
+    worker: workersRepo.findByPhone(phone)
+  });
+});
+
+// Rate a worker (1–5 stars)
+app.post('/api/workers/*phone/rate', (req, res) => {
+  const wildcard = req.params.phone;
+  const rawPhone = Array.isArray(wildcard) ? wildcard[0] : wildcard;
+  const decoded = decodeURIComponent(rawPhone);
+  const phone = normalizePhone(decoded);
+
+  const rating = parseInt(req.body.rating, 10);
+  if (isNaN(rating) || rating < 1 || rating > 5) {
+    return res.status(400).json({ error: 'Rating must be between 1 and 5' });
+  }
+
+  const updated = workersRepo.addRating(phone, rating);
+  if (!updated) {
+    return res.status(404).json({ error: 'Worker not found' });
+  }
+
+  console.log(`[API] Rating added: ${phone} → ${rating} stars (new avg: ${updated.rating})`);
+  res.json({ message: 'Rating recorded', worker: updated });
+});
+
+// Get all service requests (for admin/debug)
+app.get('/api/service-requests', (req, res) => {
+  res.json(requestsRepo.all());
+});
+
 // ============================================================
 // VOICE NOTES API
 // ============================================================
 
-// Where uploaded voice notes are stored
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-// Configure multer to store uploads with unique filenames
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
   filename: (req, file, cb) => {
-    // Extract digits from the wildcard param for the filename
     const wildcard = req.params.phone;
     const rawPhone = Array.isArray(wildcard) ? wildcard.join('') : (wildcard || 'unknown');
     const digits = rawPhone.replace(/[^0-9]/g, '') || 'unknown';
@@ -202,8 +238,6 @@ const upload = multer({
   }
 });
 
-// Upload a voice note for a worker
-// Wildcard route — Express 5 does not match URL-encoded segments with :param.
 app.post('/api/voice-notes/*phone', upload.single('audio'), (req, res) => {
   try {
     const wildcard = req.params.phone;
@@ -243,8 +277,6 @@ app.post('/api/voice-notes/*phone', upload.single('audio'), (req, res) => {
   }
 });
 
-// Fetch the latest voice note metadata for a worker
-// Wildcard route for the same reason as above.
 app.get('/api/voice-notes/*phone', (req, res) => {
   const wildcard = req.params.phone;
   const rawPhone = Array.isArray(wildcard) ? wildcard.join('/') : wildcard;
@@ -258,19 +290,15 @@ app.get('/api/voice-notes/*phone', (req, res) => {
   res.json(note);
 });
 
-// Stream the actual audio file
 app.get('/api/voice-notes/audio/:filename', (req, res) => {
   const filename = req.params.filename;
-
   if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
     return res.status(400).json({ error: 'Invalid filename' });
   }
-
   const filePath = path.join(UPLOAD_DIR, filename);
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ error: 'File not found' });
   }
-
   res.sendFile(filePath);
 });
 
@@ -290,15 +318,21 @@ app.post('/ussd', async (req, res) => {
   let response = '';
 
   try {
+    // ---------- MAIN MENU ----------
     if (text === '') {
-      response = `CON Welcome to AgriMatch
+      response = `CON Welcome to SkillLink
 1. Register as Worker
-2. Post a Job (Farmers)
+2. Request a Service
 3. Check My Status
 4. Exit`;
       return send(res, response);
     }
 
+    // ========================================================
+    // 1. REGISTER AS WORKER
+    // Flow: name → village → category → trade
+    // Trail: 1*<name>*<village>*<cat>*<trade>
+    // ========================================================
     if (input[0] === '1') {
       if (!input[1]) {
         response = 'CON Enter your full name:';
@@ -308,108 +342,177 @@ app.post('/ussd', async (req, res) => {
         const village = input[2];
         if (!isKnownVillage(village)) {
           response = `END Village "${village}" is not recognized.
-Try again with one of:
+Try one of:
 Bamenda, Mankon, Nkwen, Bambili,
 Bambui, Bafut, Bali, Batibo, Mbengwi,
 Mbouda, Wum, Kumbo, Fundong, Ndop, Nkambe.`;
           return send(res, response);
         }
-        response = `CON Select your main skill:
-1. Harvesting
-2. Planting
-3. Weeding
-4. Tractor Operation`;
+        response = `CON Select your category:
+1. Construction
+2. Beauty
+3. Repair
+4. Home Services
+5. Agriculture
+6. Other`;
+      } else if (!input[4]) {
+        // User chose a category, now show trades in that category
+        const cat = skills.getCategoryByCode(input[3]);
+        if (!cat) {
+          response = 'END Invalid category. Please dial again.';
+          return send(res, response);
+        }
+        const trades = skills.getTradesByCategory(cat.key);
+        let menu = `CON Select your trade (${cat.label}):\n`;
+        trades.forEach((t, i) => {
+          menu += `${i + 1}. ${t.label}\n`;
+        });
+        response = menu.trim();
       } else {
+        // User chose a trade — save the worker
         const name = input[1];
         const village = input[2];
-        const skillMap = {
-          '1': 'harvesting',
-          '2': 'planting',
-          '3': 'weeding',
-          '4': 'tractor'
-        };
-        const skill = skillMap[input[3]] || 'general';
+        const catCode = input[3];
+        const tradeNumber = input[4];
+
+        const cat = skills.getCategoryByCode(catCode);
+        if (!cat) {
+          response = 'END Invalid category. Please dial again.';
+          return send(res, response);
+        }
+
+        const trade = skills.getTradeByNumberInCategory(cat.key, tradeNumber);
+        if (!trade) {
+          response = 'END Invalid trade. Please dial again.';
+          return send(res, response);
+        }
 
         workersRepo.upsert({
           phone: phoneNumber,
           name,
           village,
-          skill,
+          skill: trade.key,
           available: true,
           registeredAt: new Date().toISOString()
         });
 
         response = `END Registration complete, ${name}.
-You are registered in ${village} as a ${skill} worker.
-You will receive SMS alerts when jobs match.`;
+You are registered in ${village}
+as a ${trade.label}.
+You will receive SMS alerts when clients need you.`;
 
-        sendSMS(phoneNumber, `Welcome to AgriMatch, ${name}! Your profile is active.`);
+        sendSMS(phoneNumber, `Welcome to SkillLink, ${name}! You are registered as a ${trade.label}.`);
       }
     }
 
+    // ========================================================
+    // 2. REQUEST A SERVICE (Client side)
+    // Flow: category → trade → village → budget
+    // Trail: 2*<cat>*<trade>*<village>*<budget>
+    // ========================================================
     else if (input[0] === '2') {
       if (!input[1]) {
-        response = 'CON Enter crop type (e.g., maize):';
+        response = `CON What type of service do you need?
+1. Construction
+2. Beauty
+3. Repair
+4. Home Services
+5. Agriculture
+6. Other`;
       } else if (!input[2]) {
-        response = 'CON Enter daily pay in XAF:';
+        const cat = skills.getCategoryByCode(input[1]);
+        if (!cat) {
+          response = 'END Invalid category. Please dial again.';
+          return send(res, response);
+        }
+        const trades = skills.getTradesByCategory(cat.key);
+        let menu = `CON Select the service (${cat.label}):\n`;
+        trades.forEach((t, i) => {
+          menu += `${i + 1}. ${t.label}\n`;
+        });
+        response = menu.trim();
       } else if (!input[3]) {
-        response = 'CON Enter village location:';
+        response = 'CON Enter your village:';
+      } else if (!input[4]) {
+        response = 'CON Enter your budget in XAF (e.g., 5000):';
       } else {
-        const crop = input[1];
-        const pay = parseInt(input[2], 10);
+        // Save the service request
+        const catCode = input[1];
+        const tradeNumber = input[2];
         const village = input[3];
+        const budget = parseInt(input[4], 10);
+
+        const cat = skills.getCategoryByCode(catCode);
+        if (!cat) {
+          response = 'END Invalid category. Please dial again.';
+          return send(res, response);
+        }
+
+        const trade = skills.getTradeByNumberInCategory(cat.key, tradeNumber);
+        if (!trade) {
+          response = 'END Invalid service. Please dial again.';
+          return send(res, response);
+        }
 
         if (!isKnownVillage(village)) {
-          response = `END Village "${village}" is not recognized.
-Try again with one of:
-Bamenda, Mankon, Nkwen, Bambili,
-Bambui, Bafut, Bali, Batibo, Mbengwi,
-Mbouda, Wum, Kumbo, Fundong, Ndop, Nkambe.`;
+          response = `END Village "${village}" is not recognized. Please dial again.`;
           return send(res, response);
         }
 
-        if (isNaN(pay) || pay <= 0) {
-          response = 'END Invalid pay amount. Please dial again.';
+        if (isNaN(budget) || budget <= 0) {
+          response = 'END Invalid budget. Please dial again.';
           return send(res, response);
         }
 
-        const jobId = 'J' + Date.now();
+        const requestId = 'R' + Date.now();
 
-        const job = {
-          id: jobId,
-          crop,
-          pay,
+        const request = {
+          id: requestId,
+          serviceType: trade.key,
+          budget,
           village,
-          farmerPhone: phoneNumber,
+          clientPhone: phoneNumber,
           status: 'open',
           createdAt: new Date().toISOString()
         };
 
-        jobsRepo.insert(job);
+        requestsRepo.insert(request);
 
-        response = `END Job posted.
-Crop: ${crop}
+        response = `END Request posted.
+Service: ${trade.label}
 Village: ${village}
-Pay: ${pay} XAF/day
-Job ID: ${jobId}
+Budget: ${budget} XAF
+ID: ${requestId}
 We will notify matching workers.`;
 
-        matchWorkersToJob(job);
+        matchWorkersToRequest(request);
       }
     }
 
+    // ========================================================
+    // 3. CHECK MY STATUS
+    // ========================================================
     else if (input[0] === '3') {
       const worker = workersRepo.findByPhone(phoneNumber);
       if (worker) {
+        const trade = skills.getTradeByKey(worker.skill);
+        const tradeLabel = trade ? trade.label : worker.skill;
+        const ratingText = worker.ratingCount > 0
+          ? `${worker.rating} ⭐ (${worker.ratingCount})`
+          : 'No ratings yet';
         response = `END ${worker.name}
 Village: ${worker.village}
-Skill: ${worker.skill}
+Trade: ${tradeLabel}
+Rating: ${ratingText}
 Status: ${worker.available ? 'Available' : 'Busy'}`;
       } else {
-        response = 'END You are not registered. Dial again and choose option 1.';
+        response = 'END You are not registered. Dial 1 to register.';
       }
     }
 
+    // ========================================================
+    // 4. EXIT
+    // ========================================================
     else if (input[0] === '4') {
       response = 'END Goodbye. Dial *384*13053# to return.';
     }
@@ -448,7 +551,7 @@ async function sendSMS(phoneNumber, message) {
 }
 
 // ============================================================
-// MATCHING ENGINE - Haversine + weighted scoring
+// MATCHING ENGINE — Haversine + weighted scoring
 // ============================================================
 
 const MAX_MATCH_DISTANCE_KM = 30;
@@ -458,12 +561,11 @@ const WEIGHT_DISTANCE = 0.4;
 const WEIGHT_SKILL = 0.4;
 const WEIGHT_AVAILABILITY = 0.2;
 
-function calculateMatchScore(worker, job, distanceKm) {
+function calculateMatchScore(worker, request, distanceKm) {
   const distanceScore = Math.max(0, 1 - (distanceKm / MAX_MATCH_DISTANCE_KM));
 
-  const workerSkill = (worker.skill || '').toLowerCase();
-  const crop = (job.crop || '').toLowerCase();
-  const skillScore = (crop.includes(workerSkill) || workerSkill.includes(crop)) ? 1.0 : 0.5;
+  // Skill match: exact trade match = 1.0, else 0.5
+  const skillScore = worker.skill === request.serviceType ? 1.0 : 0.5;
 
   const availabilityScore = worker.available ? 1.0 : 0.0;
 
@@ -480,13 +582,16 @@ function calculateMatchScore(worker, job, distanceKm) {
   };
 }
 
-async function matchWorkersToJob(job) {
-  console.log(`\n=== Matching workers for job ${job.id} ===`);
-  console.log(`Job: ${job.crop} in ${job.village}, ${job.pay} XAF/day`);
+async function matchWorkersToRequest(request) {
+  const trade = skills.getTradeByKey(request.serviceType);
+  const tradeLabel = trade ? trade.label : request.serviceType;
 
-  const jobCoords = getCoordinates(job.village);
-  if (!jobCoords) {
-    console.log(`Cannot match — job village "${job.village}" has no coordinates.`);
+  console.log(`\n=== Matching workers for request ${request.id} ===`);
+  console.log(`Request: ${tradeLabel} in ${request.village}, ${request.budget} XAF`);
+
+  const requestCoords = getCoordinates(request.village);
+  if (!requestCoords) {
+    console.log(`Cannot match — village "${request.village}" has no coordinates.`);
     return [];
   }
 
@@ -502,7 +607,7 @@ async function matchWorkersToJob(job) {
     }
 
     const distanceKm = haversineDistance(
-      jobCoords.lat, jobCoords.lng,
+      requestCoords.lat, requestCoords.lng,
       workerCoords.lat, workerCoords.lng
     );
 
@@ -511,7 +616,7 @@ async function matchWorkersToJob(job) {
       continue;
     }
 
-    const score = calculateMatchScore(worker, job, distanceKm);
+    const score = calculateMatchScore(worker, request, distanceKm);
     candidates.push({ worker, distanceKm, score });
   }
 
@@ -532,7 +637,7 @@ async function matchWorkersToJob(job) {
 
   for (const match of topMatches) {
     matchesRepo.insert({
-      jobId: job.id,
+      requestId: request.id,
       workerPhone: match.worker.phone,
       distanceKm: match.distanceKm,
       score: match.score.total,
@@ -543,8 +648,8 @@ async function matchWorkersToJob(job) {
 
     await sendSMS(
       match.worker.phone,
-      `New job: ${job.crop} in ${job.village}, ${job.pay} XAF/day ` +
-      `(${match.distanceKm.toFixed(1)} km away). Job ID: ${job.id}`
+      `New request: ${tradeLabel} in ${request.village}, ${request.budget} XAF. ` +
+      `(${match.distanceKm.toFixed(1)} km away). ID: ${request.id}`
     );
   }
 
@@ -560,8 +665,9 @@ const PORT = process.env.PORT || 3000;
 
 db.init().then(() => {
   app.listen(PORT, () => {
-    console.log(`AgriMatch backend running on http://localhost:${PORT}`);
+    console.log(`SkillLink backend running on http://localhost:${PORT}`);
     console.log(`Loaded ${Object.keys(locations).length} villages from locations.js`);
+    console.log(`Loaded ${skills.TRADES.length} trades from skills.js`);
     console.log(`Database: agrimatch.db`);
   });
 }).catch((err) => {

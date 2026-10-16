@@ -1,5 +1,5 @@
 // ============================================================
-// AgriMatch Database Layer — using sql.js (pure JavaScript)
+// SkillLink Database Layer — using sql.js (pure JavaScript)
 // ============================================================
 
 const initSqlJs = require('sql.js');
@@ -32,29 +32,34 @@ async function init() {
       village        TEXT NOT NULL,
       skill          TEXT NOT NULL,
       available      INTEGER DEFAULT 1,
+      rating         REAL DEFAULT 0,
+      rating_count   INTEGER DEFAULT 0,
       registered_at  TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS jobs (
+    CREATE TABLE IF NOT EXISTS service_requests (
       id             TEXT PRIMARY KEY,
-      crop           TEXT NOT NULL,
-      pay            INTEGER NOT NULL,
+      service_type   TEXT NOT NULL,
+      budget         INTEGER NOT NULL,
       village        TEXT NOT NULL,
-      farmer_phone   TEXT NOT NULL,
+      client_phone   TEXT NOT NULL,
       status         TEXT DEFAULT 'open',
-      created_at     TEXT NOT NULL
+      accepted_by    TEXT,
+      created_at     TEXT NOT NULL,
+      accepted_at    TEXT,
+      completed_at   TEXT
     );
 
     CREATE TABLE IF NOT EXISTS matches (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      job_id        TEXT NOT NULL,
-      worker_phone  TEXT NOT NULL,
-      distance_km   REAL NOT NULL,
-      score         REAL NOT NULL,
-      distance_score REAL NOT NULL,
-      skill_score    REAL NOT NULL,
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      request_id         TEXT NOT NULL,
+      worker_phone       TEXT NOT NULL,
+      distance_km        REAL NOT NULL,
+      score              REAL NOT NULL,
+      distance_score     REAL NOT NULL,
+      skill_score        REAL NOT NULL,
       availability_score REAL NOT NULL,
-      notified_at   TEXT NOT NULL
+      notified_at        TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS voice_notes (
@@ -66,6 +71,7 @@ async function init() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_workers_village ON workers(village);
+    CREATE INDEX IF NOT EXISTS idx_requests_village ON service_requests(village);
     CREATE INDEX IF NOT EXISTS idx_voice_notes_phone ON voice_notes(worker_phone);
   `);
 
@@ -138,6 +144,8 @@ const workersRepo = {
       village: row.village,
       skill: row.skill,
       available: row.available === 1,
+      rating: row.rating || 0,
+      ratingCount: row.rating_count || 0,
       registeredAt: row.registered_at
     };
   },
@@ -149,48 +157,94 @@ const workersRepo = {
       village: row.village,
       skill: row.skill,
       available: row.available === 1,
+      rating: row.rating || 0,
+      ratingCount: row.rating_count || 0,
       registeredAt: row.registered_at
     }));
+  },
+
+  // Add a rating for a worker. newRating is 1–5.
+  // Updates the running average and count.
+  addRating(phone, newRating) {
+    const worker = this.findByPhone(phone);
+    if (!worker) return null;
+
+    const currentTotal = worker.rating * worker.ratingCount;
+    const newCount = worker.ratingCount + 1;
+    const newAverage = (currentTotal + newRating) / newCount;
+
+    run(
+      'UPDATE workers SET rating = ?, rating_count = ? WHERE phone = ?',
+      [Number(newAverage.toFixed(2)), newCount, phone]
+    );
+
+    return this.findByPhone(phone);
   }
 };
 
 // ============================================================
-// JOBS
+// SERVICE REQUESTS (formerly "jobs")
 // ============================================================
 
-const jobsRepo = {
-  insert(job) {
+const requestsRepo = {
+  insert(request) {
     run(
-      `INSERT INTO jobs (id, crop, pay, village, farmer_phone, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO service_requests (
+         id, service_type, budget, village, client_phone, status, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
-        job.id,
-        job.crop,
-        job.pay,
-        job.village,
-        job.farmerPhone,
-        job.status || 'open',
-        job.createdAt || new Date().toISOString()
+        request.id,
+        request.serviceType,
+        request.budget,
+        request.village,
+        request.clientPhone,
+        request.status || 'open',
+        request.createdAt || new Date().toISOString()
       ]
     );
   },
 
   findById(id) {
-    const row = get('SELECT * FROM jobs WHERE id = ?', [id]);
+    const row = get('SELECT * FROM service_requests WHERE id = ?', [id]);
     if (!row) return null;
     return {
       id: row.id,
-      crop: row.crop,
-      pay: row.pay,
+      serviceType: row.service_type,
+      budget: row.budget,
       village: row.village,
-      farmerPhone: row.farmer_phone,
+      clientPhone: row.client_phone,
       status: row.status,
-      createdAt: row.created_at
+      acceptedBy: row.accepted_by,
+      createdAt: row.created_at,
+      acceptedAt: row.accepted_at,
+      completedAt: row.completed_at
     };
   },
 
   all() {
-    return all('SELECT * FROM jobs ORDER BY created_at DESC');
+    return all('SELECT * FROM service_requests ORDER BY created_at DESC');
+  },
+
+  // Mark a request as accepted by a specific worker
+  accept(requestId, workerPhone) {
+    run(
+      `UPDATE service_requests
+       SET status = 'accepted', accepted_by = ?, accepted_at = ?
+       WHERE id = ? AND status = 'open'`,
+      [workerPhone, new Date().toISOString(), requestId]
+    );
+    return this.findById(requestId);
+  },
+
+  // Mark a request as completed
+  complete(requestId) {
+    run(
+      `UPDATE service_requests
+       SET status = 'completed', completed_at = ?
+       WHERE id = ?`,
+      [new Date().toISOString(), requestId]
+    );
+    return this.findById(requestId);
   }
 };
 
@@ -202,11 +256,11 @@ const matchesRepo = {
   insert(match) {
     run(
       `INSERT INTO matches (
-         job_id, worker_phone, distance_km, score,
+         request_id, worker_phone, distance_km, score,
          distance_score, skill_score, availability_score, notified_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        match.jobId,
+        match.requestId,
         match.workerPhone,
         match.distanceKm,
         match.score,
@@ -218,14 +272,14 @@ const matchesRepo = {
     );
   },
 
-  findByJob(jobId) {
+  findByRequest(requestId) {
     return all(
       `SELECT m.*, w.name AS worker_name, w.village AS worker_village
        FROM matches m
        JOIN workers w ON w.phone = m.worker_phone
-       WHERE m.job_id = ?
+       WHERE m.request_id = ?
        ORDER BY m.score DESC`,
-      [jobId]
+      [requestId]
     );
   }
 };
@@ -275,7 +329,7 @@ const voiceNotesRepo = {
 module.exports = {
   init,
   workersRepo,
-  jobsRepo,
+  requestsRepo,
   matchesRepo,
   voiceNotesRepo
 };
