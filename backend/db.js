@@ -7,7 +7,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 
 // Database file lives alongside the code
-const DB_PATH = path.join(__dirname, 'agrimatch.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'agrimatch.db');
 const db = new Database(DB_PATH);
 
 // Enable foreign keys and WAL mode for better performance
