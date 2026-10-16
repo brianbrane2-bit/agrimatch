@@ -19,11 +19,24 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-const AT = africastalking({
-  apiKey: process.env.AT_API_KEY,
-  username: process.env.AT_USERNAME
-});
-const sms = AT.SMS;
+// Initialize Africa's Talking, but don't crash if the key is invalid.
+// SMS will be simulated (logged to console) until a valid key is provided.
+let sms = null;
+try {
+  if (process.env.AT_API_KEY) {
+    const AT = africastalking({
+      apiKey: process.env.AT_API_KEY,
+      username: process.env.AT_USERNAME
+    });
+    sms = AT.SMS;
+    console.log('[AT] Africa\'s Talking initialized');
+  } else {
+    console.log('[AT] No AT_API_KEY set — SMS will be simulated');
+  }
+} catch (err) {
+  console.error('[AT] Africa\'s Talking init failed — SMS will be simulated:', err.message);
+  sms = null;
+}
 
 // ============================================================
 // HELPERS: Village validation
