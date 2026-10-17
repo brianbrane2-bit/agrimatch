@@ -1,0 +1,9 @@
+node_modules
+npm-debug.log
+.env
+agrimatch.db
+agrimatch.db-shm
+agrimatch.db-wal
+uploads/*.m4a
+.git
+.gitignore
