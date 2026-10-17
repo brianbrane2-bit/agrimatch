@@ -7,7 +7,9 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const africastalking = require('africastalking');
 const locations = require('./locations');
-const { workersRepo, jobsRepo, matchesRepo, voiceNotesRepo } = require('./db');
+
+const db = require('./db');
+const { workersRepo, jobsRepo, matchesRepo, voiceNotesRepo } = db;
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -542,8 +544,14 @@ async function matchWorkersToJob(job) {
 // ============================================================
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`AgriMatch backend running on http://localhost:${PORT}`);
-  console.log(`Loaded ${Object.keys(locations).length} villages from locations.js`);
-  console.log(`Database: agrimatch.db`);
+
+db.init().then(() => {
+  app.listen(PORT, () => {
+    console.log(`AgriMatch backend running on http://localhost:${PORT}`);
+    console.log(`Loaded ${Object.keys(locations).length} villages from locations.js`);
+    console.log(`Database: agrimatch.db`);
+  });
+}).catch((err) => {
+  console.error('DB init failed:', err);
+  process.exit(1);
 });
