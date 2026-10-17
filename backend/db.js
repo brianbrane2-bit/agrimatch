@@ -1,12 +1,13 @@
 // ============================================================
 // AgriMatch Database Layer (SQLite)
-// Provides persistent storage for workers, jobs, and matches.
+// Provides persistent storage for workers, jobs, matches,
+// and voice notes.
 // ============================================================
 
 const Database = require('better-sqlite3');
 const path = require('path');
 
-// Database file lives alongside the code
+// Database file lives alongside the code, or on persistent disk
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'agrimatch.db');
 const db = new Database(DB_PATH);
 
@@ -52,9 +53,19 @@ db.exec(`
     FOREIGN KEY (worker_phone) REFERENCES workers(phone)
   );
 
+  CREATE TABLE IF NOT EXISTS voice_notes (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    worker_phone  TEXT NOT NULL,
+    file_path     TEXT NOT NULL,
+    duration_sec  INTEGER,
+    created_at    TEXT NOT NULL,
+    FOREIGN KEY (worker_phone) REFERENCES workers(phone)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_workers_village ON workers(village);
   CREATE INDEX IF NOT EXISTS idx_jobs_village ON jobs(village);
   CREATE INDEX IF NOT EXISTS idx_matches_job ON matches(job_id);
+  CREATE INDEX IF NOT EXISTS idx_voice_notes_phone ON voice_notes(worker_phone);
 `);
 
 // ============================================================
@@ -188,6 +199,43 @@ const matchesRepo = {
 };
 
 // ============================================================
+// VOICE NOTE OPERATIONS
+// ============================================================
+
+const voiceNotesRepo = {
+  insert(note) {
+    const stmt = db.prepare(`
+      INSERT INTO voice_notes (worker_phone, file_path, duration_sec, created_at)
+      VALUES (@worker_phone, @file_path, @duration_sec, @created_at)
+    `);
+    return stmt.run({
+      worker_phone: note.workerPhone,
+      file_path: note.filePath,
+      duration_sec: note.durationSec || null,
+      created_at: new Date().toISOString()
+    });
+  },
+
+  findByPhone(phone) {
+    const row = db.prepare(
+      'SELECT * FROM voice_notes WHERE worker_phone = ? ORDER BY created_at DESC LIMIT 1'
+    ).get(phone);
+    if (!row) return null;
+    return {
+      id: row.id,
+      workerPhone: row.worker_phone,
+      filePath: row.file_path,
+      durationSec: row.duration_sec,
+      createdAt: row.created_at
+    };
+  },
+
+  all() {
+    return db.prepare('SELECT * FROM voice_notes ORDER BY created_at DESC').all();
+  }
+};
+
+// ============================================================
 // EXPORT
 // ============================================================
 
@@ -195,5 +243,6 @@ module.exports = {
   db,
   workersRepo,
   jobsRepo,
-  matchesRepo
+  matchesRepo,
+  voiceNotesRepo
 };

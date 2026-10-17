@@ -7,7 +7,10 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const africastalking = require('africastalking');
 const locations = require('./locations');
-const { workersRepo, jobsRepo, matchesRepo } = require('./db');
+const { workersRepo, jobsRepo, matchesRepo, voiceNotesRepo } = require('./db');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 
@@ -34,6 +37,20 @@ function isKnownVillage(name) {
 
 function getCoordinates(village) {
   return locations[normalizeVillage(village)] || null;
+}
+
+// ============================================================
+// HELPER: Normalize phone number from URL params or body
+// Handles the case where '+' got converted to '=' or space.
+// ============================================================
+
+function normalizePhone(raw) {
+  let phone = String(raw || '').trim();
+  phone = phone.replace(/^=/, '+');
+  if (phone.startsWith(' ')) {
+    phone = '+' + phone.trim();
+  }
+  return phone;
 }
 
 // ============================================================
@@ -69,8 +86,13 @@ app.get('/', (req, res) => {
 // ============================================================
 
 // Get a worker's profile by phone number
-app.get('/api/workers/:phone', (req, res) => {
-  const phone = req.params.phone;
+// Uses a wildcard so URL-encoded phones (e.g. %2B...) match correctly.
+app.get('/api/workers/*phone', (req, res) => {
+  const wildcard = req.params.phone;
+  const rawPhone = Array.isArray(wildcard) ? wildcard.join('/') : wildcard;
+  const decoded = decodeURIComponent(rawPhone);
+  const phone = normalizePhone(decoded);
+
   const worker = workersRepo.findByPhone(phone);
 
   if (!worker) {
@@ -82,16 +104,17 @@ app.get('/api/workers/:phone', (req, res) => {
 
 // Register a new worker (called from the Flutter app)
 app.post('/api/workers', (req, res) => {
-  const { phone, name, village, skill } = req.body;
+  const name = req.body.name;
+  const village = req.body.village;
+  const skill = req.body.skill;
+  const phone = normalizePhone(req.body.phone);
 
-  // Validate required fields
   if (!phone || !name || !village || !skill) {
     return res.status(400).json({
       error: 'Missing required fields: phone, name, village, skill'
     });
   }
 
-  // Validate village against the known list
   if (!isKnownVillage(village)) {
     return res.status(400).json({ error: `Unknown village: ${village}` });
   }
@@ -124,6 +147,119 @@ app.get('/api/villages', (req, res) => {
 });
 
 // ============================================================
+// VOICE NOTES API
+// ============================================================
+
+// Where uploaded voice notes are stored
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+// Configure multer to store uploads with unique filenames
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    // Extract digits from the wildcard param for the filename
+    const wildcard = req.params.phone;
+    const rawPhone = Array.isArray(wildcard) ? wildcard.join('') : (wildcard || 'unknown');
+    const digits = rawPhone.replace(/[^0-9]/g, '') || 'unknown';
+    const timestamp = Date.now();
+    const ext = path.extname(file.originalname) || '.m4a';
+    cb(null, `voice_${digits}_${timestamp}${ext}`);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      'audio/m4a', 'audio/mp4', 'audio/mpeg', 'audio/wav',
+      'audio/x-m4a', 'audio/aac', 'audio/3gpp', 'audio/webm',
+      'application/octet-stream'
+    ];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported audio format: ${file.mimetype}`));
+    }
+  }
+});
+
+// Upload a voice note for a worker
+// Wildcard route — Express 5 does not match URL-encoded segments with :param.
+app.post('/api/voice-notes/*phone', upload.single('audio'), (req, res) => {
+  try {
+    const wildcard = req.params.phone;
+    const rawPhone = Array.isArray(wildcard) ? wildcard.join('/') : wildcard;
+    const decoded = decodeURIComponent(rawPhone);
+    const phone = normalizePhone(decoded);
+
+    console.log(`[API] Voice note upload attempt for phone: ${phone}`);
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No audio file uploaded' });
+    }
+
+    const worker = workersRepo.findByPhone(phone);
+    if (!worker) {
+      fs.unlinkSync(req.file.path);
+      return res.status(404).json({ error: `Worker not found: ${phone}` });
+    }
+
+    const durationSec = req.body.duration ? parseInt(req.body.duration, 10) : null;
+    voiceNotesRepo.insert({
+      workerPhone: phone,
+      filePath: req.file.filename,
+      durationSec
+    });
+
+    console.log(`[API] Voice note uploaded: ${worker.name} (${phone}) → ${req.file.filename}`);
+
+    res.status(201).json({
+      message: 'Voice note uploaded',
+      file: req.file.filename,
+      size: req.file.size
+    });
+  } catch (err) {
+    console.error('[API] Voice note upload error:', err);
+    res.status(500).json({ error: 'Upload failed' });
+  }
+});
+
+// Fetch the latest voice note metadata for a worker
+// Wildcard route for the same reason as above.
+app.get('/api/voice-notes/*phone', (req, res) => {
+  const wildcard = req.params.phone;
+  const rawPhone = Array.isArray(wildcard) ? wildcard.join('/') : wildcard;
+  const decoded = decodeURIComponent(rawPhone);
+  const phone = normalizePhone(decoded);
+
+  const note = voiceNotesRepo.findByPhone(phone);
+  if (!note) {
+    return res.status(404).json({ error: 'No voice note found' });
+  }
+  res.json(note);
+});
+
+// Stream the actual audio file
+app.get('/api/voice-notes/audio/:filename', (req, res) => {
+  const filename = req.params.filename;
+
+  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
+
+  const filePath = path.join(UPLOAD_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  res.sendFile(filePath);
+});
+
+// ============================================================
 // USSD HANDLER
 // ============================================================
 
@@ -139,7 +275,6 @@ app.post('/ussd', async (req, res) => {
   let response = '';
 
   try {
-    // ---------- MAIN MENU ----------
     if (text === '') {
       response = `CON Welcome to AgriMatch
 1. Register as Worker
@@ -149,7 +284,6 @@ app.post('/ussd', async (req, res) => {
       return send(res, response);
     }
 
-    // ---------- REGISTRATION ----------
     if (input[0] === '1') {
       if (!input[1]) {
         response = 'CON Enter your full name:';
@@ -181,7 +315,6 @@ Mbouda, Wum, Kumbo, Fundong, Ndop, Nkambe.`;
         };
         const skill = skillMap[input[3]] || 'general';
 
-        // Persist to database
         workersRepo.upsert({
           phone: phoneNumber,
           name,
@@ -199,7 +332,6 @@ You will receive SMS alerts when jobs match.`;
       }
     }
 
-    // ---------- POST A JOB ----------
     else if (input[0] === '2') {
       if (!input[1]) {
         response = 'CON Enter crop type (e.g., maize):';
@@ -251,7 +383,6 @@ We will notify matching workers.`;
       }
     }
 
-    // ---------- CHECK STATUS ----------
     else if (input[0] === '3') {
       const worker = workersRepo.findByPhone(phoneNumber);
       if (worker) {
@@ -264,7 +395,6 @@ Status: ${worker.available ? 'Available' : 'Busy'}`;
       }
     }
 
-    // ---------- EXIT ----------
     else if (input[0] === '4') {
       response = 'END Goodbye. Dial *384*13053# to return.';
     }
@@ -345,7 +475,6 @@ async function matchWorkersToJob(job) {
     return [];
   }
 
-  // Read all workers from the database
   const allWorkers = workersRepo.all();
   const candidates = [];
 
@@ -387,7 +516,6 @@ async function matchWorkersToJob(job) {
   console.log(`\n  Notifying ${topMatches.length} worker(s) via SMS...`);
 
   for (const match of topMatches) {
-    // Persist the match record to the database
     matchesRepo.insert({
       jobId: job.id,
       workerPhone: match.worker.phone,
