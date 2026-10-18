@@ -1,5 +1,5 @@
 // ============================================================
-// SkillLink Mobile App - Worker Registration & Ratings
+// SkillLink Mobile App - Version 2 (Role-Based)
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -31,8 +31,43 @@ class TradeCategory {
   TradeCategory(this.key, this.label, this.trades);
 }
 
+class User {
+  final String phone;
+  final String name;
+  final String role; // 'worker' or 'client'
+  final String? village;
+  final String? skill;
+  final bool available;
+  final double rating;
+  final int ratingCount;
+
+  User({
+    required this.phone,
+    required this.name,
+    required this.role,
+    this.village,
+    this.skill,
+    required this.available,
+    required this.rating,
+    required this.ratingCount,
+  });
+
+  factory User.fromJson(Map<String, dynamic> json) {
+    return User(
+      phone: json['phone'],
+      name: json['name'],
+      role: json['role'],
+      village: json['village'],
+      skill: json['skill'],
+      available: json['available'] == true,
+      rating: (json['rating'] ?? 0).toDouble(),
+      ratingCount: json['ratingCount'] ?? 0,
+    );
+  }
+}
+
 // ============================================================
-// Main App with Custom Splash Screen
+// Main App
 // ============================================================
 
 void main() {
@@ -57,88 +92,24 @@ class SkillLinkApp extends StatelessWidget {
           },
         ),
       ),
-      home: const SplashScreen(),
-    );
-  }
-}
-
-class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
-
-  @override
-  State<SplashScreen> createState() => _SplashScreenState();
-}
-
-class _SplashScreenState extends State<SplashScreen> {
-  @override
-  void initState() {
-    super.initState();
-    // Wait 3 seconds, then go to HomeScreen
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          PageRouteBuilder(
-            pageBuilder: (_, __, ___) => const HomeScreen(),
-            transitionsBuilder: (_, animation, __, child) {
-              return FadeTransition(opacity: animation, child: child);
-            },
-            transitionDuration: const Duration(milliseconds: 800),
-          ),
-        );
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF3F51B5), // Indigo
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.handshake, size: 100, color: Colors.white),
-            const SizedBox(height: 20),
-            const Text(
-              'SkillLink',
-              style: TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-                letterSpacing: 1.5,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Connect skilled workers to clients',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.white.withOpacity(0.8),
-              ),
-            ),
-            const SizedBox(height: 60),
-            const SizedBox(
-              width: 40,
-              height: 40,
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                strokeWidth: 3,
-              ),
-            ),
-          ],
-        ),
-      ),
+      home: const AuthScreen(),
     );
   }
 }
 
 // ============================================================
-// SCREEN 1: Home
+// AUTH SCREEN (Login / Register Switch)
 // ============================================================
 
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+class AuthScreen extends StatefulWidget {
+  const AuthScreen({super.key});
+
+  @override
+  State<AuthScreen> createState() => _AuthScreenState();
+}
+
+class _AuthScreenState extends State<AuthScreen> {
+  bool _isLogin = true; // Toggle between Login and Register
 
   @override
   Widget build(BuildContext context) {
@@ -148,76 +119,146 @@ class HomeScreen extends StatelessWidget {
         backgroundColor: Colors.indigo[700],
         foregroundColor: Colors.white,
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.handshake, size: 80, color: Colors.indigo),
-              const SizedBox(height: 20),
-              const Text(
-                'Welcome to SkillLink',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Connect skilled workers to clients',
-                style: TextStyle(fontSize: 14, color: Colors.grey),
-              ),
-              const SizedBox(height: 40),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const RegisterScreen()),
-                    );
-                  },
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('Register as Worker', style: TextStyle(fontSize: 16)),
-                  style: ElevatedButton.styleFrom(
-                    elevation: 4,
-                    shadowColor: Colors.indigo.withOpacity(0.5),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const StatusScreen()),
-                    );
-                  },
-                  icon: const Icon(Icons.search),
-                  label: const Text('Check My Status', style: TextStyle(fontSize: 16)),
-                  style: OutlinedButton.styleFrom(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    side: BorderSide(color: Colors.indigo.withOpacity(0.5)),
-                  ),
-                ),
-              ),
-            ],
+      body: _isLogin
+          ? LoginScreen(onToggle: () => setState(() => _isLogin = false))
+          : RegisterScreen(onToggle: () => setState(() => _isLogin = true)),
+    );
+  }
+}
+
+// ============================================================
+// LOGIN SCREEN
+// ============================================================
+
+class LoginScreen extends StatefulWidget {
+  final VoidCallback onToggle;
+  const LoginScreen({super.key, required this.onToggle});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _phoneController = TextEditingController();
+  final _pinController = TextEditingController();
+  bool _loading = false;
+  String? _error;
+
+  Future<void> _login() async {
+    final phone = _phoneController.text.trim();
+    final pin = _pinController.text.trim();
+
+    if (phone.isEmpty || pin.isEmpty) {
+      setState(() => _error = 'Enter phone and PIN');
+      return;
+    }
+
+    setState(() { _loading = true; _error = null; });
+
+    try {
+      final response = await http.post(
+        Uri.parse('$API_BASE/api/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'phone': phone, 'pin': pin}),
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final user = User.fromJson(data['user']);
+        
+        // Route based on role
+        if (user.role == 'worker') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => WorkerDashboard(user: user)),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => ClientDashboard(user: user)),
+          );
+        }
+      } else {
+        setState(() => _error = 'Invalid phone or PIN');
+      }
+    } catch (e) {
+      setState(() => _error = 'Network error: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 40),
+          const Icon(Icons.handshake, size: 80, color: Colors.indigo),
+          const SizedBox(height: 20),
+          const Text(
+            'Welcome Back',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
-        ),
+          const SizedBox(height: 40),
+          TextField(
+            controller: _phoneController,
+            decoration: const InputDecoration(
+              labelText: 'Phone Number',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.phone),
+            ),
+            keyboardType: TextInputType.phone,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _pinController,
+            decoration: const InputDecoration(
+              labelText: '4-Digit PIN',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.lock),
+            ),
+            obscureText: true,
+            keyboardType: TextInputType.number,
+            maxLength: 4,
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Text(_error!, style: const TextStyle(color: Colors.red)),
+            ),
+          SizedBox(
+            height: 50,
+            child: ElevatedButton(
+              onPressed: _loading ? null : _login,
+              child: _loading
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text('Login', style: TextStyle(fontSize: 16)),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextButton(
+            onPressed: widget.onToggle,
+            child: const Text("Don't have an account? Register"),
+          ),
+        ],
       ),
     );
   }
 }
 
 // ============================================================
-// SCREEN 2: Register Worker
+// REGISTER SCREEN
 // ============================================================
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
+  final VoidCallback onToggle;
+  const RegisterScreen({super.key, required this.onToggle});
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -227,26 +268,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _pinController = TextEditingController();
 
+  String _role = 'client'; // Default role
   String? _selectedVillage;
   String? _selectedTradeKey;
   List<TradeCategory> _categories = [];
   bool _loadingTrades = true;
-  String? _tradeError;
-
   bool _submitting = false;
 
   @override
   void initState() {
     super.initState();
     _loadTrades();
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _phoneController.dispose();
-    super.dispose();
   }
 
   Future<void> _loadTrades() async {
@@ -267,59 +301,49 @@ class _RegisterScreenState extends State<RegisterScreen> {
             _loadingTrades = false;
           });
         }
-      } else {
-        if (mounted) setState(() {
-          _tradeError = 'Failed to load trades';
-          _loadingTrades = false;
-        });
       }
     } catch (e) {
-      if (mounted) setState(() {
-        _tradeError = 'Network error: $e';
-        _loadingTrades = false;
-      });
+      if (mounted) setState(() => _loadingTrades = false);
     }
-  }
-
-  void _showSnack(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedVillage == null || _selectedTradeKey == null) {
-      _showSnack('Please select village and trade');
+    if (_role == 'worker' && (_selectedVillage == null || _selectedTradeKey == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select village and trade')));
       return;
     }
 
     setState(() => _submitting = true);
 
     try {
-      final phone = _phoneController.text.trim();
       final response = await http.post(
-        Uri.parse('$API_BASE/api/workers'),
+        Uri.parse('$API_BASE/api/register'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'phone': phone,
+          'phone': _phoneController.text.trim(),
           'name': _nameController.text.trim(),
-          'village': _selectedVillage,
-          'skill': _selectedTradeKey,
+          'role': _role,
+          'pin': _pinController.text.trim(),
+          'village': _role == 'worker' ? _selectedVillage : null,
+          'skill': _role == 'worker' ? _selectedTradeKey : null,
         }),
       );
 
       if (!mounted) return;
 
       if (response.statusCode == 201) {
-        _showSnack('Registration successful!');
-        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Registration successful! Please login.'), backgroundColor: Colors.green),
+        );
+        widget.onToggle(); // Switch back to login
       } else {
         final error = jsonDecode(response.body)['error'] ?? 'Registration failed';
-        _showSnack(error);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.red));
       }
     } catch (e) {
       if (!mounted) return;
-      _showSnack('Network error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Network error: $e')));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -327,256 +351,218 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24.0),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 20),
+            const Text(
+              'Create an Account',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 20),
+            // Role Selector
+            Row(
+              children: [
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text('I need a service', textAlign: TextAlign.center),
+                    selected: _role == 'client',
+                    onSelected: (v) => setState(() => _role = 'client'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text('I offer services', textAlign: TextAlign.center),
+                    selected: _role == 'worker',
+                    onSelected: (v) => setState(() => _role = 'worker'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            TextFormField(
+              controller: _nameController,
+              decoration: const InputDecoration(labelText: 'Full Name', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person)),
+              validator: (v) => v!.isEmpty ? 'Required' : null,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _phoneController,
+              decoration: const InputDecoration(labelText: 'Phone Number', hintText: '+2376XXXXXXXX', border: OutlineInputBorder(), prefixIcon: Icon(Icons.phone)),
+              keyboardType: TextInputType.phone,
+              validator: (v) => v!.isEmpty ? 'Required' : null,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _pinController,
+              decoration: const InputDecoration(labelText: 'Set 4-Digit PIN', border: OutlineInputBorder(), prefixIcon: Icon(Icons.lock)),
+              obscureText: true,
+              keyboardType: TextInputType.number,
+              maxLength: 4,
+              validator: (v) => (v == null || v.length != 4) ? 'Must be 4 digits' : null,
+            ),
+            // Worker-only fields
+            if (_role == 'worker') ...[
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                value: _selectedVillage,
+                decoration: const InputDecoration(labelText: 'Village', border: OutlineInputBorder(), prefixIcon: Icon(Icons.location_on)),
+                items: VILLAGES.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+                onChanged: (v) => setState(() => _selectedVillage = v),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _selectedTradeKey,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Trade / Service', border: OutlineInputBorder(), prefixIcon: Icon(Icons.work)),
+                items: _categories.expand((cat) => cat.trades.map((t) => DropdownMenuItem(value: t.key, child: Text(t.label)))).toList(),
+                onChanged: (v) => setState(() => _selectedTradeKey = v),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _submitting ? null : _submit,
+                child: _submitting ? const CircularProgressIndicator(color: Colors.white) : const Text('Register', style: TextStyle(fontSize: 16)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: widget.onToggle,
+              child: const Text("Already have an account? Login"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// WORKER DASHBOARD
+// ============================================================
+
+class WorkerDashboard extends StatelessWidget {
+  final User user;
+  const WorkerDashboard({super.key, required this.user});
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Register as Worker'),
+        title: const Text('Worker Dashboard'),
         backgroundColor: Colors.indigo[700],
         foregroundColor: Colors.white,
       ),
-      body: _loadingTrades
-          ? const Center(child: CircularProgressIndicator())
-          : _tradeError != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Text(_tradeError!, style: const TextStyle(color: Colors.red)),
-                  ),
-                )
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('My Profile', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            Card(
+              elevation: 4,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    Row(
                       children: [
-                        TextFormField(
-                          controller: _nameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Full Name',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.person),
-                          ),
-                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter your name' : null,
-                        ),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _phoneController,
-                          decoration: const InputDecoration(
-                            labelText: 'Phone Number',
-                            hintText: '+2376XXXXXXXX',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.phone),
-                          ),
-                          keyboardType: TextInputType.phone,
-                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter your phone' : null,
-                        ),
-                        const SizedBox(height: 16),
-                        DropdownButtonFormField<String>(
-                          value: _selectedVillage,
-                          decoration: const InputDecoration(
-                            labelText: 'Village',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.location_on),
-                          ),
-                          items: VILLAGES
-                              .map((v) => DropdownMenuItem(value: v, child: Text(v)))
-                              .toList(),
-                          onChanged: (v) => setState(() => _selectedVillage = v),
-                          validator: (v) => v == null ? 'Select your village' : null,
-                        ),
-                        const SizedBox(height: 16),
-                        DropdownButtonFormField<String>(
-                          value: _selectedTradeKey,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Trade / Service',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.work),
-                          ),
-                          items: _buildTradeMenuItems(),
-                          onChanged: (v) => setState(() => _selectedTradeKey = v),
-                          validator: (v) => v == null ? 'Select your trade' : null,
-                        ),
-                        const SizedBox(height: 24),
-                        SizedBox(
-                          height: 50,
-                          child: ElevatedButton(
-                            onPressed: _submitting ? null : _submit,
-                            child: _submitting
-                                ? const CircularProgressIndicator(color: Colors.white)
-                                : const Text('Register', style: TextStyle(fontSize: 16)),
-                          ),
+                        const CircleAvatar(radius: 30, child: Icon(Icons.person, size: 40)),
+                        const SizedBox(width: 16),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(user.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                            Text(user.skill ?? 'No trade set', style: const TextStyle(color: Colors.grey)),
+                          ],
                         ),
                       ],
                     ),
-                  ),
+                    const Divider(height: 30),
+                    _row('Village', user.village ?? '-'),
+                    _row('Phone', user.phone),
+                    _row('Rating', '${user.rating.toStringAsFixed(1)} ⭐ (${user.ratingCount})'),
+                    _row('Status', user.available ? 'Available' : 'Busy'),
+                  ],
                 ),
-    );
-  }
-
-  List<DropdownMenuItem<String>> _buildTradeMenuItems() {
-    final items = <DropdownMenuItem<String>>[];
-    for (final cat in _categories) {
-      items.add(DropdownMenuItem<String>(
-        enabled: false,
-        value: '__header_${cat.key}',
-        child: Text(
-          cat.label,
-          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo),
-        ),
-      ));
-      for (final trade in cat.trades) {
-        items.add(DropdownMenuItem<String>(
-          value: trade.key,
-          child: Padding(
-            padding: const EdgeInsets.only(left: 12),
-            child: Text(trade.label),
-          ),
-        ));
-      }
-    }
-    return items;
-  }
-}
-
-// ============================================================
-// SCREEN 3: Check Status
-// ============================================================
-
-class StatusScreen extends StatefulWidget {
-  const StatusScreen({super.key});
-
-  @override
-  State<StatusScreen> createState() => _StatusScreenState();
-}
-
-class _StatusScreenState extends State<StatusScreen> {
-  final _phoneController = TextEditingController();
-  Map<String, dynamic>? _worker;
-  bool _loading = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _phoneController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _fetchWorker() async {
-    final phone = _phoneController.text.trim();
-    if (phone.isEmpty) {
-      setState(() => _error = 'Please enter a phone number');
-      return;
-    }
-
-    setState(() {
-      _loading = true;
-      _error = null;
-      _worker = null;
-    });
-
-    try {
-      final encodedPhone = Uri.encodeComponent(phone);
-      final response = await http.get(Uri.parse('$API_BASE/api/workers/$encodedPhone'));
-      if (!mounted) return;
-
-      if (response.statusCode == 200) {
-        setState(() => _worker = jsonDecode(response.body));
-      } else {
-        setState(() => _error = 'Worker not found');
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = 'Network error: $e');
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _showRatingDialog() async {
-    if (_worker == null) return;
-    final phone = _worker!['phone'] as String;
-
-    int selectedStars = 5;
-
-    final result = await showDialog<int>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Rate this worker'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('How was your experience?'),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(5, (index) {
-                      final starValue = index + 1;
-                      return IconButton(
-                        iconSize: 40,
-                        icon: Icon(
-                          starValue <= selectedStars ? Icons.star : Icons.star_border,
-                          color: Colors.amber,
-                        ),
-                        onPressed: () {
-                          setDialogState(() => selectedStars = starValue);
-                        },
-                      );
-                    }),
-                  ),
-                ],
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, null),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(context, selectedStars),
-                  child: const Text('Submit'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+            ),
+            const Spacer(),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AuthScreen()));
+                },
+                icon: const Icon(Icons.logout),
+                label: const Text('Logout'),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
+  }
 
-    if (result == null) return;
+  Widget _row(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(value),
+        ],
+      ),
+    );
+  }
+}
 
+// ============================================================
+// CLIENT DASHBOARD (Marketplace)
+// ============================================================
+
+class ClientDashboard extends StatefulWidget {
+  final User user;
+  const ClientDashboard({super.key, required this.user});
+
+  @override
+  State<ClientDashboard> createState() => _ClientDashboardState();
+}
+
+class _ClientDashboardState extends State<ClientDashboard> {
+  List<dynamic> _workers = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchWorkers();
+  }
+
+  Future<void> _fetchWorkers() async {
     try {
-      final encodedPhone = Uri.encodeComponent(phone);
-      final response = await http.post(
-        Uri.parse('$API_BASE/api/workers/$encodedPhone/rate'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'rating': result}),
-      );
-
-      if (!mounted) return;
-
+      final response = await http.get(Uri.parse('$API_BASE/api/workers'));
       if (response.statusCode == 200) {
-        final updated = jsonDecode(response.body)['worker'];
-        setState(() => _worker = updated);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Rating submitted: $result star${result > 1 ? 's' : ''}'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        final error = jsonDecode(response.body)['error'] ?? 'Rating failed';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error), backgroundColor: Colors.red),
-        );
+        if (mounted) {
+          setState(() {
+            _workers = jsonDecode(response.body);
+            _loading = false;
+          });
+        }
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Network error: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -584,129 +570,41 @@ class _StatusScreenState extends State<StatusScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Check My Status'),
+        title: const Text('Hire a Worker'),
         backgroundColor: Colors.indigo[700],
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AuthScreen())),
+          )
+        ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            TextField(
-              controller: _phoneController,
-              decoration: const InputDecoration(
-                labelText: 'Phone Number',
-                hintText: '+2376XXXXXXXX',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.phone),
-              ),
-              keyboardType: TextInputType.phone,
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 50,
-              child: ElevatedButton(
-                onPressed: _loading ? null : _fetchWorker,
-                child: _loading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Check Status', style: TextStyle(fontSize: 16)),
-              ),
-            ),
-            const SizedBox(height: 24),
-            if (_error != null)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red[50],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(_error!, style: const TextStyle(color: Colors.red)),
-              ),
-            if (_worker != null) _buildWorkerCard(_worker!),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildWorkerCard(Map<String, dynamic> worker) {
-    final rating = worker['rating'] ?? 0;
-    final ratingCount = worker['ratingCount'] ?? 0;
-    final ratingText = ratingCount > 0
-        ? '${rating.toStringAsFixed(1)} ⭐ ($ratingCount review${ratingCount > 1 ? 's' : ''})'
-        : 'No ratings yet';
-
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.person, color: Colors.indigo, size: 32),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    worker['name'] ?? 'Unknown',
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _workers.length,
+              itemBuilder: (context, index) {
+                final w = _workers[index];
+                return Card(
+                  elevation: 2,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: ListTile(
+                    leading: const CircleAvatar(child: Icon(Icons.person)),
+                    title: Text(w['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('${w['skill']} • ${w['village']}'),
+                    trailing: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.star, color: Colors.amber, size: 16),
+                        Text('${w['rating']}'),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                );
+              },
             ),
-            const Divider(height: 24),
-            _infoRow(Icons.location_on, 'Village', worker['village'] ?? '-'),
-            const SizedBox(height: 8),
-            _infoRow(Icons.work, 'Trade', _formatTrade(worker['skill'] ?? '-')),
-            const SizedBox(height: 8),
-            _infoRow(Icons.star, 'Rating', ratingText),
-            const SizedBox(height: 8),
-            _infoRow(
-              Icons.check_circle,
-              'Status',
-              (worker['available'] == true) ? 'Available' : 'Busy',
-            ),
-            const Divider(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _showRatingDialog,
-                icon: const Icon(Icons.star),
-                label: const Text('Rate this worker'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.amber[800],
-                  side: BorderSide(color: Colors.amber[800]!),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _formatTrade(String skillKey) {
-    if (skillKey.isEmpty) return '-';
-    return skillKey
-        .split('_')
-        .map((part) => part.isEmpty ? '' : part[0].toUpperCase() + part.substring(1))
-        .join(' ');
-  }
-
-  Widget _infoRow(IconData icon, String label, String value) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 20, color: Colors.grey[700]),
-        const SizedBox(width: 12),
-        SizedBox(
-          width: 80,
-          child: Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w600)),
-        ),
-        Expanded(child: Text(value)),
-      ],
     );
   }
 }

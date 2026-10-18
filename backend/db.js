@@ -1,5 +1,5 @@
 // ============================================================
-// SkillLink Database Layer — using sql.js (pure JavaScript)
+// SkillLink Database Layer — using sql.js
 // ============================================================
 
 const initSqlJs = require('sql.js');
@@ -10,10 +10,6 @@ const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'agrimatch.db');
 
 let db = null;
 let SQL = null;
-
-// ============================================================
-// INITIALIZATION
-// ============================================================
 
 async function init() {
   SQL = await initSqlJs();
@@ -26,11 +22,13 @@ async function init() {
   }
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS workers (
+    CREATE TABLE IF NOT EXISTS users (
       phone          TEXT PRIMARY KEY,
       name           TEXT NOT NULL,
-      village        TEXT NOT NULL,
-      skill          TEXT NOT NULL,
+      role           TEXT NOT NULL,
+      pin            TEXT NOT NULL,
+      village        TEXT,
+      skill          TEXT,
       available      INTEGER DEFAULT 1,
       rating         REAL DEFAULT 0,
       rating_count   INTEGER DEFAULT 0,
@@ -69,10 +67,6 @@ async function init() {
       duration_sec  INTEGER,
       created_at    TEXT NOT NULL
     );
-
-    CREATE INDEX IF NOT EXISTS idx_workers_village ON workers(village);
-    CREATE INDEX IF NOT EXISTS idx_requests_village ON service_requests(village);
-    CREATE INDEX IF NOT EXISTS idx_voice_notes_phone ON voice_notes(worker_phone);
   `);
 
   save();
@@ -85,17 +79,11 @@ function save() {
   fs.writeFileSync(DB_PATH, Buffer.from(data));
 }
 
-// ============================================================
-// HELPERS
-// ============================================================
-
 function all(sql, params = []) {
   const stmt = db.prepare(sql);
   stmt.bind(params);
   const rows = [];
-  while (stmt.step()) {
-    rows.push(stmt.getAsObject());
-  }
+  while (stmt.step()) rows.push(stmt.getAsObject());
   stmt.free();
   return rows;
 }
@@ -111,36 +99,42 @@ function run(sql, params = []) {
 }
 
 // ============================================================
-// WORKERS
+// USERS
 // ============================================================
 
-const workersRepo = {
-  upsert(worker) {
+const usersRepo = {
+  upsert(user) {
     run(
-      `INSERT INTO workers (phone, name, village, skill, available, registered_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO users (phone, name, role, pin, village, skill, available, registered_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(phone) DO UPDATE SET
          name = excluded.name,
+         role = excluded.role,
+         pin = excluded.pin,
          village = excluded.village,
          skill = excluded.skill,
          available = excluded.available`,
       [
-        worker.phone,
-        worker.name,
-        worker.village,
-        worker.skill,
-        worker.available ? 1 : 0,
-        worker.registeredAt || new Date().toISOString()
+        user.phone,
+        user.name,
+        user.role,
+        user.pin,
+        user.village || null,
+        user.skill || null,
+        user.available ? 1 : 0,
+        user.registeredAt || new Date().toISOString()
       ]
     );
   },
 
   findByPhone(phone) {
-    const row = get('SELECT * FROM workers WHERE phone = ?', [phone]);
+    const row = get('SELECT * FROM users WHERE phone = ?', [phone]);
     if (!row) return null;
     return {
       phone: row.phone,
       name: row.name,
+      role: row.role,
+      pin: row.pin,
       village: row.village,
       skill: row.skill,
       available: row.available === 1,
@@ -150,10 +144,11 @@ const workersRepo = {
     };
   },
 
-  all() {
-    return all('SELECT * FROM workers').map((row) => ({
+  allWorkers() {
+    return all("SELECT * FROM users WHERE role = 'worker'").map((row) => ({
       phone: row.phone,
       name: row.name,
+      role: row.role,
       village: row.village,
       skill: row.skill,
       available: row.available === 1,
@@ -164,15 +159,15 @@ const workersRepo = {
   },
 
   addRating(phone, newRating) {
-    const worker = this.findByPhone(phone);
-    if (!worker) return null;
+    const user = this.findByPhone(phone);
+    if (!user) return null;
 
-    const currentTotal = worker.rating * worker.ratingCount;
-    const newCount = worker.ratingCount + 1;
+    const currentTotal = user.rating * user.ratingCount;
+    const newCount = user.ratingCount + 1;
     const newAverage = (currentTotal + newRating) / newCount;
 
     run(
-      'UPDATE workers SET rating = ?, rating_count = ? WHERE phone = ?',
+      'UPDATE users SET rating = ?, rating_count = ? WHERE phone = ?',
       [Number(newAverage.toFixed(2)), newCount, phone]
     );
 
@@ -247,9 +242,7 @@ const requestsRepo = {
 
   complete(requestId) {
     run(
-      `UPDATE service_requests
-       SET status = 'completed', completed_at = ?
-       WHERE id = ?`,
+      `UPDATE service_requests SET status = 'completed', completed_at = ? WHERE id = ?`,
       [new Date().toISOString(), requestId]
     );
     return this.findById(requestId);
@@ -284,7 +277,7 @@ const matchesRepo = {
     return all(
       `SELECT m.*, w.name AS worker_name, w.village AS worker_village
        FROM matches m
-       JOIN workers w ON w.phone = m.worker_phone
+       JOIN users w ON w.phone = m.worker_phone
        WHERE m.request_id = ?
        ORDER BY m.score DESC`,
       [requestId]
@@ -301,12 +294,7 @@ const voiceNotesRepo = {
     run(
       `INSERT INTO voice_notes (worker_phone, file_path, duration_sec, created_at)
        VALUES (?, ?, ?, ?)`,
-      [
-        note.workerPhone,
-        note.filePath,
-        note.durationSec || null,
-        new Date().toISOString()
-      ]
+      [note.workerPhone, note.filePath, note.durationSec || null, new Date().toISOString()]
     );
   },
 
@@ -323,10 +311,6 @@ const voiceNotesRepo = {
       durationSec: row.duration_sec,
       createdAt: row.created_at
     };
-  },
-
-  all() {
-    return all('SELECT * FROM voice_notes ORDER BY created_at DESC');
   }
 };
 
@@ -336,7 +320,7 @@ const voiceNotesRepo = {
 
 module.exports = {
   init,
-  workersRepo,
+  usersRepo,
   requestsRepo,
   matchesRepo,
   voiceNotesRepo
