@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:url_launcher/url_launcher.dart';
 
 // ============================================================
 // Configuration
@@ -34,7 +35,7 @@ class TradeCategory {
 class User {
   final String phone;
   final String name;
-  final String role; // 'worker' or 'client'
+  final String role;
   final String? village;
   final String? skill;
   final bool available;
@@ -98,7 +99,7 @@ class SkillLinkApp extends StatelessWidget {
 }
 
 // ============================================================
-// AUTH SCREEN (Login / Register Switch)
+// AUTH SCREEN
 // ============================================================
 
 class AuthScreen extends StatefulWidget {
@@ -109,7 +110,7 @@ class AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<AuthScreen> {
-  bool _isLogin = true; // Toggle between Login and Register
+  bool _isLogin = true;
 
   @override
   Widget build(BuildContext context) {
@@ -168,7 +169,6 @@ class _LoginScreenState extends State<LoginScreen> {
         final data = jsonDecode(response.body);
         final user = User.fromJson(data['user']);
         
-        // Route based on role
         if (user.role == 'worker') {
           Navigator.pushReplacement(
             context,
@@ -270,7 +270,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phoneController = TextEditingController();
   final _pinController = TextEditingController();
 
-  String _role = 'client'; // Default role
+  String _role = 'client';
   String? _selectedVillage;
   String? _selectedTradeKey;
   List<TradeCategory> _categories = [];
@@ -336,7 +336,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Registration successful! Please login.'), backgroundColor: Colors.green),
         );
-        widget.onToggle(); // Switch back to login
+        widget.onToggle();
       } else {
         final error = jsonDecode(response.body)['error'] ?? 'Registration failed';
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.red));
@@ -365,7 +365,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 20),
-            // Role Selector
             Row(
               children: [
                 Expanded(
@@ -407,7 +406,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
               maxLength: 4,
               validator: (v) => (v == null || v.length != 4) ? 'Must be 4 digits' : null,
             ),
-            // Worker-only fields
             if (_role == 'worker') ...[
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
@@ -566,6 +564,34 @@ class _ClientDashboardState extends State<ClientDashboard> {
     }
   }
 
+  Future<void> _openWhatsApp(Map<String, dynamic> worker) async {
+    final phone = worker['phone'].replaceAll('+', '');
+    final name = worker['name'];
+    final trade = worker['skill'];
+    final village = worker['village'];
+
+    final message = Uri.encodeComponent(
+        "Hello $name, I saw your profile on SkillLink. Are you available for a $trade job in $village?");
+
+    final url = Uri.parse("https://wa.me/$phone?text=$message");
+
+    try {
+      if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not open WhatsApp')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -582,29 +608,67 @@ class _ClientDashboardState extends State<ClientDashboard> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: _workers.length,
-              itemBuilder: (context, index) {
-                final w = _workers[index];
-                return Card(
-                  elevation: 2,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    leading: const CircleAvatar(child: Icon(Icons.person)),
-                    title: Text(w['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text('${w['skill']} • ${w['village']}'),
-                    trailing: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.star, color: Colors.amber, size: 16),
-                        Text('${w['rating']}'),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
+          : _workers.isEmpty
+              ? const Center(child: Text('No workers available yet.'))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _workers.length,
+                  itemBuilder: (context, index) {
+                    final w = _workers[index];
+                    return Card(
+                      elevation: 3,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const CircleAvatar(
+                                  radius: 25,
+                                  backgroundColor: Colors.indigo,
+                                  child: Icon(Icons.person, color: Colors.white),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(w['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                                      Text('${w['skill']} • ${w['village']}', style: const TextStyle(color: Colors.grey)),
+                                    ],
+                                  ),
+                                ),
+                                Column(
+                                  children: [
+                                    const Icon(Icons.star, color: Colors.amber, size: 20),
+                                    Text(w['rating'].toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: () => _openWhatsApp(w),
+                                icon: const Icon(Icons.chat),
+                                label: const Text('Contact via WhatsApp'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green[600],
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }
