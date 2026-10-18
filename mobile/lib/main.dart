@@ -1,15 +1,11 @@
 // ============================================================
-// SkillLink Mobile App - Worker Registration, Voice Notes & Ratings
+// SkillLink Mobile App - Worker Registration & Ratings
 // ============================================================
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import 'dart:convert';
-
-import 'package:path_provider/path_provider.dart';
-import 'package:record/record.dart';
-import 'package:audioplayers/audioplayers.dart';
 
 // ============================================================
 // Configuration
@@ -34,10 +30,6 @@ const List<String> VILLAGES = [
   'Ndop',
   'Nkambe',
 ];
-
-// ============================================================
-// Data Models
-// ============================================================
 
 class Trade {
   final String key;
@@ -153,7 +145,7 @@ class HomeScreen extends StatelessWidget {
 }
 
 // ============================================================
-// SCREEN 2: Register Worker (with voice note)
+// SCREEN 2: Register Worker
 // ============================================================
 
 class RegisterScreen extends StatefulWidget {
@@ -176,16 +168,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   bool _submitting = false;
 
-  final AudioRecorder _recorder = AudioRecorder();
-  bool _isRecording = false;
-  String? _recordingPath;
-  int _recordSeconds = 0;
-  bool _hasPermission = false;
-
   @override
   void initState() {
     super.initState();
-    _checkPermission();
     _loadTrades();
   }
 
@@ -193,13 +178,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
-    _recorder.dispose();
     super.dispose();
-  }
-
-  Future<void> _checkPermission() async {
-    final granted = await _recorder.hasPermission();
-    if (mounted) setState(() => _hasPermission = granted);
   }
 
   Future<void> _loadTrades() async {
@@ -236,79 +215,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  Future<void> _startRecording() async {
-    try {
-      if (!await _recorder.hasPermission()) {
-        _showSnack('Microphone permission not granted');
-        return;
-      }
-      final dir = await getTemporaryDirectory();
-      final path =
-          '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      await _recorder.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc),
-        path: path,
-      );
-
-      setState(() {
-        _isRecording = true;
-        _recordingPath = null;
-        _recordSeconds = 0;
-      });
-      _tickTimer();
-    } catch (e) {
-      _showSnack('Failed to start recording: $e');
-    }
-  }
-
-  void _tickTimer() async {
-    while (_isRecording && mounted) {
-      await Future.delayed(const Duration(seconds: 1));
-      if (_isRecording && mounted) setState(() => _recordSeconds++);
-    }
-  }
-
-  Future<void> _stopRecording() async {
-    try {
-      final path = await _recorder.stop();
-      setState(() {
-        _isRecording = false;
-        _recordingPath = path;
-      });
-      if (path != null) _showSnack('Voice note recorded ($_recordSeconds s)');
-    } catch (e) {
-      _showSnack('Failed to stop recording: $e');
-    }
-  }
-
-  void _deleteRecording() {
-    setState(() {
-      _recordingPath = null;
-      _recordSeconds = 0;
-    });
-  }
-
   void _showSnack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
-  Future<void> _uploadVoiceNote(String phone) async {
-    if (_recordingPath == null) return;
-    try {
-      final encodedPhone = Uri.encodeComponent(phone);
-      final uri = Uri.parse('$API_BASE/api/voice-notes/$encodedPhone');
-      final request = http.MultipartRequest('POST', uri);
-      request.fields['duration'] = _recordSeconds.toString();
-      request.files.add(
-        await http.MultipartFile.fromPath('audio', _recordingPath!),
-      );
-      final response = await request.send();
-      final body = await response.stream.bytesToString();
-      print('[Voice] status=${response.statusCode} body=$body');
-    } catch (e) {
-      print('[Voice] ERROR: $e');
-    }
   }
 
   Future<void> _submit() async {
@@ -336,8 +245,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
 
       if (response.statusCode == 201) {
-        if (_recordingPath != null) await _uploadVoiceNote(phone);
-        if (!mounted) return;
         _showSnack('Registration successful!');
         Navigator.pop(context);
       } else {
@@ -436,8 +343,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       validator: (v) => v == null ? 'Select your trade' : null,
                     ),
                     const SizedBox(height: 24),
-                    _buildVoiceNoteSection(),
-                    const SizedBox(height: 24),
                     SizedBox(
                       height: 50,
                       child: ElevatedButton(
@@ -489,85 +394,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
     return items;
   }
-
-  Widget _buildVoiceNoteSection() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.indigo.shade300),
-        borderRadius: BorderRadius.circular(8),
-        color: Colors.indigo.shade50,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.mic, color: Colors.indigo),
-              SizedBox(width: 8),
-              Text(
-                'Voice Note (Optional)',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Record a short introduction. Clients can listen to it.',
-            style: TextStyle(fontSize: 12, color: Colors.black54),
-          ),
-          const SizedBox(height: 16),
-          if (!_hasPermission)
-            const Text(
-              'Microphone permission not granted.',
-              style: TextStyle(color: Colors.red, fontSize: 12),
-            )
-          else if (_isRecording)
-            Row(
-              children: [
-                const Icon(
-                  Icons.fiber_manual_record,
-                  color: Colors.red,
-                  size: 16,
-                ),
-                const SizedBox(width: 8),
-                Text('Recording... $_recordSeconds s'),
-                const Spacer(),
-                ElevatedButton.icon(
-                  onPressed: _stopRecording,
-                  icon: const Icon(Icons.stop),
-                  label: const Text('Stop'),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                ),
-              ],
-            )
-          else if (_recordingPath != null)
-            Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.green, size: 20),
-                const SizedBox(width: 8),
-                Text('Recorded ($_recordSeconds s)'),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: _deleteRecording,
-                  tooltip: 'Delete',
-                ),
-              ],
-            )
-          else
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _startRecording,
-                icon: const Icon(Icons.mic),
-                label: const Text('Start Recording'),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 }
 
 // ============================================================
@@ -584,7 +410,6 @@ class StatusScreen extends StatefulWidget {
 class _StatusScreenState extends State<StatusScreen> {
   final _phoneController = TextEditingController();
   Map<String, dynamic>? _worker;
-  Map<String, dynamic>? _voiceNote;
   bool _loading = false;
   String? _error;
 
@@ -605,7 +430,6 @@ class _StatusScreenState extends State<StatusScreen> {
       _loading = true;
       _error = null;
       _worker = null;
-      _voiceNote = null;
     });
 
     try {
@@ -617,7 +441,6 @@ class _StatusScreenState extends State<StatusScreen> {
 
       if (response.statusCode == 200) {
         setState(() => _worker = jsonDecode(response.body));
-        await _fetchVoiceNote(phone);
       } else {
         setState(() => _error = 'Worker not found');
       }
@@ -627,19 +450,6 @@ class _StatusScreenState extends State<StatusScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  Future<void> _fetchVoiceNote(String phone) async {
-    try {
-      final encodedPhone = Uri.encodeComponent(phone);
-      final response = await http.get(
-        Uri.parse('$API_BASE/api/voice-notes/$encodedPhone'),
-      );
-      if (!mounted) return;
-      if (response.statusCode == 200) {
-        setState(() => _voiceNote = jsonDecode(response.body));
-      }
-    } catch (_) {}
   }
 
   Future<void> _showRatingDialog() async {
@@ -830,21 +640,6 @@ class _StatusScreenState extends State<StatusScreen> {
               'Status',
               (worker['available'] == true) ? 'Available' : 'Busy',
             ),
-            if (_voiceNote != null) ...[
-              const Divider(height: 24),
-              Row(
-                children: [
-                  const Icon(Icons.audiotrack, color: Colors.indigo),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Voice introduction on file',
-                      style: TextStyle(fontStyle: FontStyle.italic),
-                    ),
-                  ),
-                ],
-              ),
-            ],
             const Divider(height: 24),
             SizedBox(
               width: double.infinity,
