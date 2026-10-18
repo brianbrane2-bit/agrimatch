@@ -163,8 +163,6 @@ const workersRepo = {
     }));
   },
 
-  // Add a rating for a worker. newRating is 1–5.
-  // Updates the running average and count.
   addRating(phone, newRating) {
     const worker = this.findByPhone(phone);
     if (!worker) return null;
@@ -183,7 +181,7 @@ const workersRepo = {
 };
 
 // ============================================================
-// SERVICE REQUESTS (formerly "jobs")
+// SERVICE REQUESTS
 // ============================================================
 
 const requestsRepo = {
@@ -222,10 +220,21 @@ const requestsRepo = {
   },
 
   all() {
-    return all('SELECT * FROM service_requests ORDER BY created_at DESC');
+    const rows = all('SELECT * FROM service_requests ORDER BY created_at DESC');
+    return rows.map((row) => ({
+      id: row.id,
+      serviceType: row.service_type,
+      budget: row.budget,
+      village: row.village,
+      clientPhone: row.client_phone,
+      status: row.status,
+      acceptedBy: row.accepted_by,
+      createdAt: row.created_at,
+      acceptedAt: row.accepted_at,
+      completedAt: row.completed_at
+    }));
   },
 
-  // Mark a request as accepted by a specific worker
   accept(requestId, workerPhone) {
     run(
       `UPDATE service_requests
@@ -236,7 +245,6 @@ const requestsRepo = {
     return this.findById(requestId);
   },
 
-  // Mark a request as completed
   complete(requestId) {
     run(
       `UPDATE service_requests

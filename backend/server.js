@@ -19,7 +19,6 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// Africa's Talking is optional — app runs without it
 let sms = null;
 try {
   if (process.env.AT_API_KEY) {
@@ -38,7 +37,7 @@ try {
 }
 
 // ============================================================
-// HELPERS: Village validation
+// HELPERS
 // ============================================================
 
 function normalizeVillage(name) {
@@ -53,10 +52,6 @@ function getCoordinates(village) {
   return locations[normalizeVillage(village)] || null;
 }
 
-// ============================================================
-// HELPER: Normalize phone number
-// ============================================================
-
 function normalizePhone(raw) {
   let phone = String(raw || '').trim();
   phone = phone.replace(/^=/, '+');
@@ -66,22 +61,15 @@ function normalizePhone(raw) {
   return phone;
 }
 
-// ============================================================
-// HELPER: Haversine distance (km)
-// ============================================================
-
 function haversineDistance(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const toRad = (deg) => deg * Math.PI / 180;
-
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
-
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
-
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
@@ -95,10 +83,9 @@ app.get('/', (req, res) => {
 });
 
 // ============================================================
-// REST API FOR MOBILE APP
+// REST API
 // ============================================================
 
-// Get all trades (for the Flutter dropdown)
 app.get('/api/trades', (req, res) => {
   const categories = Object.entries(skills.CATEGORIES).map(([key, cat]) => ({
     key,
@@ -111,7 +98,6 @@ app.get('/api/trades', (req, res) => {
   res.json(categories);
 });
 
-// Get all known villages
 app.get('/api/villages', (req, res) => {
   const villages = Object.keys(locations).map((key) => ({
     name: key.charAt(0).toUpperCase() + key.slice(1),
@@ -121,7 +107,6 @@ app.get('/api/villages', (req, res) => {
   res.json(villages);
 });
 
-// Get a worker's profile by phone number
 app.get('/api/workers/*phone', (req, res) => {
   const wildcard = req.params.phone;
   const rawPhone = Array.isArray(wildcard) ? wildcard.join('/') : wildcard;
@@ -135,7 +120,6 @@ app.get('/api/workers/*phone', (req, res) => {
   res.json(worker);
 });
 
-// Register a new worker
 app.post('/api/workers', (req, res) => {
   const name = req.body.name;
   const village = req.body.village;
@@ -174,7 +158,6 @@ app.post('/api/workers', (req, res) => {
   });
 });
 
-// Rate a worker (1–5 stars)
 app.post('/api/workers/*phone/rate', (req, res) => {
   const wildcard = req.params.phone;
   const rawPhone = Array.isArray(wildcard) ? wildcard[0] : wildcard;
@@ -195,13 +178,62 @@ app.post('/api/workers/*phone/rate', (req, res) => {
   res.json({ message: 'Rating recorded', worker: updated });
 });
 
-// Get all service requests (for admin/debug)
 app.get('/api/service-requests', (req, res) => {
   res.json(requestsRepo.all());
 });
 
+app.get('/api/service-requests/by-client/*phone', (req, res) => {
+  const wildcard = req.params.phone;
+  const rawPhone = Array.isArray(wildcard) ? wildcard.join('/') : wildcard;
+  const decoded = decodeURIComponent(rawPhone);
+  const phone = normalizePhone(decoded);
+
+  const all = requestsRepo.all();
+  const clientRequests = all.filter(r => r.clientPhone === phone);
+  res.json(clientRequests);
+});
+
+app.post('/api/service-requests/*id/accept', (req, res) => {
+  const wildcard = req.params.id;
+  const requestId = Array.isArray(wildcard) ? wildcard[0] : wildcard;
+  const workerPhone = normalizePhone(req.body.workerPhone);
+
+  if (!workerPhone) {
+    return res.status(400).json({ error: 'Missing workerPhone' });
+  }
+
+  const updated = requestsRepo.accept(requestId, workerPhone);
+  if (!updated) {
+    return res.status(404).json({ error: 'Request not found' });
+  }
+
+  console.log(`[API] Request ${requestId} accepted by ${workerPhone}`);
+  res.json({ message: 'Request accepted', request: updated });
+});
+
+app.post('/api/service-requests/*id/complete', (req, res) => {
+  const wildcard = req.params.id;
+  const requestId = Array.isArray(wildcard) ? wildcard[0] : wildcard;
+
+  const updated = requestsRepo.complete(requestId);
+  if (!updated) {
+    return res.status(404).json({ error: 'Request not found' });
+  }
+
+  console.log(`[API] Request ${requestId} completed`);
+  res.json({ message: 'Request completed', request: updated });
+});
+
+app.get('/api/service-requests/*id/matches', (req, res) => {
+  const wildcard = req.params.id;
+  const requestId = Array.isArray(wildcard) ? wildcard[0] : wildcard;
+
+  const matches = matchesRepo.findByRequest(requestId);
+  res.json(matches);
+});
+
 // ============================================================
-// VOICE NOTES API
+// VOICE NOTES
 // ============================================================
 
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
@@ -303,7 +335,7 @@ app.get('/api/voice-notes/audio/:filename', (req, res) => {
 });
 
 // ============================================================
-// USSD HANDLER
+// USSD HANDLER — 5 options with My Requests
 // ============================================================
 
 app.post('/ussd', async (req, res) => {
@@ -323,16 +355,13 @@ app.post('/ussd', async (req, res) => {
       response = `CON Welcome to SkillLink
 1. Register as Worker
 2. Request a Service
-3. Check My Status
-4. Exit`;
+3. My Requests
+4. Check My Status
+5. Exit`;
       return send(res, response);
     }
 
-    // ========================================================
-    // 1. REGISTER AS WORKER
-    // Flow: name → village → category → trade
-    // Trail: 1*<name>*<village>*<cat>*<trade>
-    // ========================================================
+    // ---------- 1. REGISTER ----------
     if (input[0] === '1') {
       if (!input[1]) {
         response = 'CON Enter your full name:';
@@ -356,7 +385,6 @@ Mbouda, Wum, Kumbo, Fundong, Ndop, Nkambe.`;
 5. Agriculture
 6. Other`;
       } else if (!input[4]) {
-        // User chose a category, now show trades in that category
         const cat = skills.getCategoryByCode(input[3]);
         if (!cat) {
           response = 'END Invalid category. Please dial again.';
@@ -369,7 +397,6 @@ Mbouda, Wum, Kumbo, Fundong, Ndop, Nkambe.`;
         });
         response = menu.trim();
       } else {
-        // User chose a trade — save the worker
         const name = input[1];
         const village = input[2];
         const catCode = input[3];
@@ -405,11 +432,7 @@ You will receive SMS alerts when clients need you.`;
       }
     }
 
-    // ========================================================
-    // 2. REQUEST A SERVICE (Client side)
-    // Flow: category → trade → village → budget
-    // Trail: 2*<cat>*<trade>*<village>*<budget>
-    // ========================================================
+    // ---------- 2. REQUEST A SERVICE ----------
     else if (input[0] === '2') {
       if (!input[1]) {
         response = `CON What type of service do you need?
@@ -436,7 +459,6 @@ You will receive SMS alerts when clients need you.`;
       } else if (!input[4]) {
         response = 'CON Enter your budget in XAF (e.g., 5000):';
       } else {
-        // Save the service request
         const catCode = input[1];
         const tradeNumber = input[2];
         const village = input[3];
@@ -489,10 +511,127 @@ We will notify matching workers.`;
       }
     }
 
-    // ========================================================
-    // 3. CHECK MY STATUS
-    // ========================================================
+    // ---------- 3. MY REQUESTS ----------
     else if (input[0] === '3') {
+      const all = requestsRepo.all();
+      const myRequests = all.filter(r => r.clientPhone === phoneNumber);
+
+      if (!input[1]) {
+        if (myRequests.length === 0) {
+          response = 'END You have no requests yet. Dial 2 to post one.';
+          return send(res, response);
+        }
+        let menu = `CON Your requests:\n`;
+        myRequests.slice(0, 8).forEach((r, i) => {
+          const trade = skills.getTradeByKey(r.serviceType);
+          const tradeLabel = trade ? trade.label : r.serviceType;
+          menu += `${i + 1}. ${r.id.slice(-6)} - ${tradeLabel} - ${r.status}\n`;
+        });
+        menu += '0. Back';
+        response = menu.trim();
+      } else if (!input[2]) {
+        if (input[1] === '0') {
+          response = `CON Welcome to SkillLink
+1. Register as Worker
+2. Request a Service
+3. My Requests
+4. Check My Status
+5. Exit`;
+          return send(res, response);
+        }
+        const idx = parseInt(input[1], 10) - 1;
+        if (idx < 0 || idx >= myRequests.length) {
+          response = 'END Invalid selection.';
+          return send(res, response);
+        }
+        const req = myRequests[idx];
+        const matches = matchesRepo.findByRequest(req.id);
+        const trade = skills.getTradeByKey(req.serviceType);
+        const tradeLabel = trade ? trade.label : req.serviceType;
+
+        response = `CON Request ${req.id.slice(-6)}
+${tradeLabel} - ${req.village}
+Status: ${req.status}
+1. View Matches (${matches.length})
+2. Complete
+0. Back`;
+      } else if (input[2] === '1') {
+        const idx = parseInt(input[1], 10) - 1;
+        const req = myRequests[idx];
+        if (!req) {
+          response = 'END Request not found.';
+          return send(res, response);
+        }
+        const matches = matchesRepo.findByRequest(req.id);
+
+        if (!input[3]) {
+          if (matches.length === 0) {
+            response = 'END No matches found for this request.';
+            return send(res, response);
+          }
+          let menu = `CON Matches for ${req.id.slice(-6)}:\n`;
+          matches.slice(0, 8).forEach((m, i) => {
+            menu += `${i + 1}. ${m.worker_name} (${m.worker_village})\n`;
+          });
+          menu += '0. Back';
+          response = menu.trim();
+        } else {
+          if (input[3] === '0') {
+            const matches2 = matchesRepo.findByRequest(req.id);
+            const trade = skills.getTradeByKey(req.serviceType);
+            const tradeLabel = trade ? trade.label : req.serviceType;
+            response = `CON Request ${req.id.slice(-6)}
+${tradeLabel} - ${req.village}
+Status: ${req.status}
+1. View Matches (${matches2.length})
+2. Complete
+0. Back`;
+          } else {
+            const matchIdx = parseInt(input[3], 10) - 1;
+            if (matchIdx < 0 || matchIdx >= matches.length) {
+              response = 'END Invalid selection.';
+              return send(res, response);
+            }
+            const match = matches[matchIdx];
+            requestsRepo.accept(req.id, match.worker_phone);
+            const trade = skills.getTradeByKey(req.serviceType);
+            const tradeLabel = trade ? trade.label : req.serviceType;
+
+            response = `END You selected ${match.worker_name}.
+Phone: ${match.worker_phone}
+Service: ${tradeLabel}
+Request ${req.id.slice(-6)} is now assigned.`;
+
+            sendSMS(match.worker_phone,
+              `You have been selected for a ${tradeLabel} job in ${req.village}. ` +
+              `Contact the client at ${phoneNumber}.`);
+          }
+        }
+      } else if (input[2] === '2') {
+        const idx = parseInt(input[1], 10) - 1;
+        const req = myRequests[idx];
+        if (!req) {
+          response = 'END Request not found.';
+          return send(res, response);
+        }
+        requestsRepo.complete(req.id);
+        response = `END Request ${req.id.slice(-6)} marked as completed. Thank you!`;
+      } else if (input[2] === '0') {
+        let menu = `CON Your requests:\n`;
+        myRequests.slice(0, 8).forEach((r, i) => {
+          const trade = skills.getTradeByKey(r.serviceType);
+          const tradeLabel = trade ? trade.label : r.serviceType;
+          menu += `${i + 1}. ${r.id.slice(-6)} - ${tradeLabel} - ${r.status}\n`;
+        });
+        menu += '0. Back';
+        response = menu.trim();
+      } else {
+        response = 'END Invalid selection.';
+      }
+    }
+
+    // ---------- 4. CHECK MY STATUS ----------
+    else if (input[0] === '4') {
       const worker = workersRepo.findByPhone(phoneNumber);
       if (worker) {
         const trade = skills.getTradeByKey(worker.skill);
@@ -510,10 +649,8 @@ Status: ${worker.available ? 'Available' : 'Busy'}`;
       }
     }
 
-    // ========================================================
-    // 4. EXIT
-    // ========================================================
-    else if (input[0] === '4') {
+    // ---------- 5. EXIT ----------
+    else if (input[0] === '5') {
       response = 'END Goodbye. Dial *384*13053# to return.';
     }
 
@@ -529,18 +666,10 @@ Status: ${worker.available ? 'Available' : 'Busy'}`;
   }
 });
 
-// ============================================================
-// HELPER: Send USSD response
-// ============================================================
-
 function send(res, message) {
   res.set('Content-Type', 'text/plain');
   res.send(message);
 }
-
-// ============================================================
-// SMS HANDLER (simulated for demo)
-// ============================================================
 
 async function sendSMS(phoneNumber, message) {
   console.log('\n========== SMS ==========');
@@ -551,29 +680,23 @@ async function sendSMS(phoneNumber, message) {
 }
 
 // ============================================================
-// MATCHING ENGINE — Haversine + weighted scoring
+// MATCHING ENGINE
 // ============================================================
 
 const MAX_MATCH_DISTANCE_KM = 30;
 const TOP_N_MATCHES = 5;
-
 const WEIGHT_DISTANCE = 0.4;
 const WEIGHT_SKILL = 0.4;
 const WEIGHT_AVAILABILITY = 0.2;
 
 function calculateMatchScore(worker, request, distanceKm) {
   const distanceScore = Math.max(0, 1 - (distanceKm / MAX_MATCH_DISTANCE_KM));
-
-  // Skill match: exact trade match = 1.0, else 0.5
   const skillScore = worker.skill === request.serviceType ? 1.0 : 0.5;
-
   const availabilityScore = worker.available ? 1.0 : 0.0;
-
   const total =
     (WEIGHT_DISTANCE * distanceScore) +
     (WEIGHT_SKILL * skillScore) +
     (WEIGHT_AVAILABILITY * availabilityScore);
-
   return {
     total: Number(total.toFixed(3)),
     distanceScore: Number(distanceScore.toFixed(3)),
@@ -600,11 +723,7 @@ async function matchWorkersToRequest(request) {
 
   for (const worker of allWorkers) {
     const workerCoords = getCoordinates(worker.village);
-
-    if (!workerCoords) {
-      console.log(`  Skipping ${worker.name} — village "${worker.village}" has no coordinates.`);
-      continue;
-    }
+    if (!workerCoords) continue;
 
     const distanceKm = haversineDistance(
       requestCoords.lat, requestCoords.lng,
@@ -621,19 +740,17 @@ async function matchWorkersToRequest(request) {
   }
 
   candidates.sort((a, b) => b.score.total - a.score.total);
-
   const topMatches = candidates.slice(0, TOP_N_MATCHES);
 
   console.log(`\n  Ranked matches (top ${TOP_N_MATCHES}):`);
   topMatches.forEach((m, i) => {
     console.log(
       `  ${i + 1}. ${m.worker.name} (${m.worker.village}) — ` +
-      `${m.distanceKm.toFixed(1)} km, score ${m.score.total} ` +
-      `[dist ${m.score.distanceScore}, skill ${m.score.skillScore}, avail ${m.score.availabilityScore}]`
+      `${m.distanceKm.toFixed(1)} km, score ${m.score.total}`
     );
   });
 
-  console.log(`\n  Notifying ${topMatches.length} worker(s) via SMS...`);
+  console.log(`\n  Notifying ${topMatches.length} worker(s)...`);
 
   for (const match of topMatches) {
     matchesRepo.insert({
