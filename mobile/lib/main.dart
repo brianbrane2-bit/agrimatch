@@ -4,7 +4,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-
 import 'dart:convert';
 
 // ============================================================
@@ -14,21 +13,9 @@ import 'dart:convert';
 const String API_BASE = 'http://10.0.2.2:3000';
 
 const List<String> VILLAGES = [
-  'Bamenda',
-  'Mankon',
-  'Nkwen',
-  'Bambili',
-  'Bambui',
-  'Bafut',
-  'Bali',
-  'Batibo',
-  'Mbengwi',
-  'Mbouda',
-  'Wum',
-  'Kumbo',
-  'Fundong',
-  'Ndop',
-  'Nkambe',
+  'Bamenda', 'Mankon', 'Nkwen', 'Bambili', 'Bambui',
+  'Bafut', 'Bali', 'Batibo', 'Mbengwi', 'Mbouda',
+  'Wum', 'Kumbo', 'Fundong', 'Ndop', 'Nkambe',
 ];
 
 class Trade {
@@ -45,7 +32,7 @@ class TradeCategory {
 }
 
 // ============================================================
-// Main App
+// Main App with Custom Splash Screen
 // ============================================================
 
 void main() {
@@ -59,11 +46,89 @@ class SkillLinkApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'SkillLink',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: ZoomPageTransitionsBuilder(),
+            TargetPlatform.iOS: ZoomPageTransitionsBuilder(),
+          },
+        ),
       ),
-      home: const HomeScreen(),
+      home: const SplashScreen(),
+    );
+  }
+}
+
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Wait 3 seconds, then go to HomeScreen
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => const HomeScreen(),
+            transitionsBuilder: (_, animation, __, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+            transitionDuration: const Duration(milliseconds: 800),
+          ),
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF3F51B5), // Indigo
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.handshake, size: 100, color: Colors.white),
+            const SizedBox(height: 20),
+            const Text(
+              'SkillLink',
+              style: TextStyle(
+                fontSize: 36,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+                letterSpacing: 1.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Connect skilled workers to clients',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.white.withOpacity(0.8),
+              ),
+            ),
+            const SizedBox(height: 60),
+            const SizedBox(
+              width: 40,
+              height: 40,
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                strokeWidth: 3,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -112,9 +177,11 @@ class HomeScreen extends StatelessWidget {
                     );
                   },
                   icon: const Icon(Icons.person_add),
-                  label: const Text(
-                    'Register as Worker',
-                    style: TextStyle(fontSize: 16),
+                  label: const Text('Register as Worker', style: TextStyle(fontSize: 16)),
+                  style: ElevatedButton.styleFrom(
+                    elevation: 4,
+                    shadowColor: Colors.indigo.withOpacity(0.5),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
               ),
@@ -130,9 +197,10 @@ class HomeScreen extends StatelessWidget {
                     );
                   },
                   icon: const Icon(Icons.search),
-                  label: const Text(
-                    'Check My Status',
-                    style: TextStyle(fontSize: 16),
+                  label: const Text('Check My Status', style: TextStyle(fontSize: 16)),
+                  style: OutlinedButton.styleFrom(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    side: BorderSide(color: Colors.indigo.withOpacity(0.5)),
                   ),
                 ),
               ),
@@ -200,18 +268,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
           });
         }
       } else {
-        if (mounted)
-          setState(() {
-            _tradeError = 'Failed to load trades';
-            _loadingTrades = false;
-          });
-      }
-    } catch (e) {
-      if (mounted)
-        setState(() {
-          _tradeError = 'Network error: $e';
+        if (mounted) setState(() {
+          _tradeError = 'Failed to load trades';
           _loadingTrades = false;
         });
+      }
+    } catch (e) {
+      if (mounted) setState(() {
+        _tradeError = 'Network error: $e';
+        _loadingTrades = false;
+      });
     }
   }
 
@@ -248,8 +314,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _showSnack('Registration successful!');
         Navigator.pop(context);
       } else {
-        final error =
-            jsonDecode(response.body)['error'] ?? 'Registration failed';
+        final error = jsonDecode(response.body)['error'] ?? 'Registration failed';
         _showSnack(error);
       }
     } catch (e) {
@@ -271,125 +336,103 @@ class _RegisterScreenState extends State<RegisterScreen> {
       body: _loadingTrades
           ? const Center(child: CircularProgressIndicator())
           : _tradeError != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Text(
-                  _tradeError!,
-                  style: const TextStyle(color: Colors.red),
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(_tradeError!, style: const TextStyle(color: Colors.red)),
+                  ),
+                )
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextFormField(
+                          controller: _nameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Full Name',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.person),
+                          ),
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter your name' : null,
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _phoneController,
+                          decoration: const InputDecoration(
+                            labelText: 'Phone Number',
+                            hintText: '+2376XXXXXXXX',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.phone),
+                          ),
+                          keyboardType: TextInputType.phone,
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter your phone' : null,
+                        ),
+                        const SizedBox(height: 16),
+                        DropdownButtonFormField<String>(
+                          value: _selectedVillage,
+                          decoration: const InputDecoration(
+                            labelText: 'Village',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.location_on),
+                          ),
+                          items: VILLAGES
+                              .map((v) => DropdownMenuItem(value: v, child: Text(v)))
+                              .toList(),
+                          onChanged: (v) => setState(() => _selectedVillage = v),
+                          validator: (v) => v == null ? 'Select your village' : null,
+                        ),
+                        const SizedBox(height: 16),
+                        DropdownButtonFormField<String>(
+                          value: _selectedTradeKey,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Trade / Service',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.work),
+                          ),
+                          items: _buildTradeMenuItems(),
+                          onChanged: (v) => setState(() => _selectedTradeKey = v),
+                          validator: (v) => v == null ? 'Select your trade' : null,
+                        ),
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          height: 50,
+                          child: ElevatedButton(
+                            onPressed: _submitting ? null : _submit,
+                            child: _submitting
+                                ? const CircularProgressIndicator(color: Colors.white)
+                                : const Text('Register', style: TextStyle(fontSize: 16)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            )
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    TextFormField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Full Name',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.person),
-                      ),
-                      validator: (v) => (v == null || v.trim().isEmpty)
-                          ? 'Enter your name'
-                          : null,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _phoneController,
-                      decoration: const InputDecoration(
-                        labelText: 'Phone Number',
-                        hintText: '+2376XXXXXXXX',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.phone),
-                      ),
-                      keyboardType: TextInputType.phone,
-                      validator: (v) => (v == null || v.trim().isEmpty)
-                          ? 'Enter your phone'
-                          : null,
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: _selectedVillage,
-                      decoration: const InputDecoration(
-                        labelText: 'Village',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.location_on),
-                      ),
-                      items: VILLAGES
-                          .map(
-                            (v) => DropdownMenuItem(value: v, child: Text(v)),
-                          )
-                          .toList(),
-                      onChanged: (v) => setState(() => _selectedVillage = v),
-                      validator: (v) =>
-                          v == null ? 'Select your village' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: _selectedTradeKey,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Trade / Service',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.work),
-                      ),
-                      items: _buildTradeMenuItems(),
-                      onChanged: (v) => setState(() => _selectedTradeKey = v),
-                      validator: (v) => v == null ? 'Select your trade' : null,
-                    ),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      height: 50,
-                      child: ElevatedButton(
-                        onPressed: _submitting ? null : _submit,
-                        child: _submitting
-                            ? const CircularProgressIndicator(
-                                color: Colors.white,
-                              )
-                            : const Text(
-                                'Register',
-                                style: TextStyle(fontSize: 16),
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
     );
   }
 
   List<DropdownMenuItem<String>> _buildTradeMenuItems() {
     final items = <DropdownMenuItem<String>>[];
     for (final cat in _categories) {
-      items.add(
-        DropdownMenuItem<String>(
-          enabled: false,
-          value: '__header_${cat.key}',
-          child: Text(
-            cat.label,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Colors.indigo,
-            ),
-          ),
+      items.add(DropdownMenuItem<String>(
+        enabled: false,
+        value: '__header_${cat.key}',
+        child: Text(
+          cat.label,
+          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo),
         ),
-      );
+      ));
       for (final trade in cat.trades) {
-        items.add(
-          DropdownMenuItem<String>(
-            value: trade.key,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 12),
-              child: Text(trade.label),
-            ),
+        items.add(DropdownMenuItem<String>(
+          value: trade.key,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 12),
+            child: Text(trade.label),
           ),
-        );
+        ));
       }
     }
     return items;
@@ -434,9 +477,7 @@ class _StatusScreenState extends State<StatusScreen> {
 
     try {
       final encodedPhone = Uri.encodeComponent(phone);
-      final response = await http.get(
-        Uri.parse('$API_BASE/api/workers/$encodedPhone'),
-      );
+      final response = await http.get(Uri.parse('$API_BASE/api/workers/$encodedPhone'));
       if (!mounted) return;
 
       if (response.statusCode == 200) {
@@ -477,9 +518,7 @@ class _StatusScreenState extends State<StatusScreen> {
                       return IconButton(
                         iconSize: 40,
                         icon: Icon(
-                          starValue <= selectedStars
-                              ? Icons.star
-                              : Icons.star_border,
+                          starValue <= selectedStars ? Icons.star : Icons.star_border,
                           color: Colors.amber,
                         ),
                         onPressed: () {
@@ -523,9 +562,7 @@ class _StatusScreenState extends State<StatusScreen> {
         setState(() => _worker = updated);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Rating submitted: $result star${result > 1 ? 's' : ''}',
-            ),
+            content: Text('Rating submitted: $result star${result > 1 ? 's' : ''}'),
             backgroundColor: Colors.green,
           ),
         );
@@ -538,10 +575,7 @@ class _StatusScreenState extends State<StatusScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Network error: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('Network error: $e'), backgroundColor: Colors.red),
       );
     }
   }
@@ -576,10 +610,7 @@ class _StatusScreenState extends State<StatusScreen> {
                 onPressed: _loading ? null : _fetchWorker,
                 child: _loading
                     ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text(
-                        'Check Status',
-                        style: TextStyle(fontSize: 16),
-                      ),
+                    : const Text('Check Status', style: TextStyle(fontSize: 16)),
               ),
             ),
             const SizedBox(height: 24),
@@ -620,10 +651,7 @@ class _StatusScreenState extends State<StatusScreen> {
                 Expanded(
                   child: Text(
                     worker['name'] ?? 'Unknown',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -663,10 +691,7 @@ class _StatusScreenState extends State<StatusScreen> {
     if (skillKey.isEmpty) return '-';
     return skillKey
         .split('_')
-        .map(
-          (part) =>
-              part.isEmpty ? '' : part[0].toUpperCase() + part.substring(1),
-        )
+        .map((part) => part.isEmpty ? '' : part[0].toUpperCase() + part.substring(1))
         .join(' ');
   }
 
@@ -678,10 +703,7 @@ class _StatusScreenState extends State<StatusScreen> {
         const SizedBox(width: 12),
         SizedBox(
           width: 80,
-          child: Text(
-            '$label: ',
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
+          child: Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w600)),
         ),
         Expanded(child: Text(value)),
       ],
