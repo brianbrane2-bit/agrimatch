@@ -83,6 +83,183 @@ app.get('/', (req, res) => {
 });
 
 // ============================================================
+// ADMIN DASHBOARD (HTML)
+// ============================================================
+
+app.get('/admin', (req, res) => {
+  res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SkillLink Admin Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Inter', sans-serif; background: #0f172a; color: #e2e8f0; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; }
+    .badge-open { background: #eab308; color: #000; }
+    .badge-accepted { background: #3b82f6; color: #fff; }
+    .badge-completed { background: #22c55e; color: #fff; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 12px 8px; border-bottom: 2px solid #334155; color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+    td { padding: 12px 8px; border-bottom: 1px solid #1e293b; font-size: 14px; }
+    tr:hover td { background: #334155; }
+    .star { color: #fbbf24; }
+  </style>
+</head>
+<body class="min-h-screen p-8">
+  <div class="max-w-7xl mx-auto">
+    <div class="flex justify-between items-center mb-8">
+      <div>
+        <h1 class="text-4xl font-bold text-white">SkillLink</h1>
+        <p class="text-slate-400 mt-1">Admin Dashboard — Live View</p>
+      </div>
+      <div class="text-right">
+        <p class="text-sm text-slate-400">Last updated</p>
+        <p id="timestamp" class="text-lg font-mono text-white">--:--:--</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-4 mb-8">
+      <div class="card p-6">
+        <p class="text-sm text-slate-400">Total Workers</p>
+        <p id="workerCount" class="text-3xl font-bold text-indigo-400">-</p>
+      </div>
+      <div class="card p-6">
+        <p class="text-sm text-slate-400">Service Requests</p>
+        <p id="requestCount" class="text-3xl font-bold text-yellow-400">-</p>
+      </div>
+      <div class="card p-6">
+        <p class="text-sm text-slate-400">Matches Made</p>
+        <p id="matchCount" class="text-3xl font-bold text-green-400">-</p>
+      </div>
+    </div>
+
+    <div class="card p-6 mb-8">
+      <h2 class="text-xl font-bold text-white mb-4">Workers</h2>
+      <div class="overflow-x-auto">
+        <table id="workersTable">
+          <thead><tr><th>Name</th><th>Phone</th><th>Village</th><th>Trade</th><th>Rating</th><th>Status</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card p-6 mb-8">
+      <h2 class="text-xl font-bold text-white mb-4">Service Requests</h2>
+      <div class="overflow-x-auto">
+        <table id="requestsTable">
+          <thead><tr><th>ID</th><th>Trade</th><th>Village</th><th>Budget</th><th>Status</th><th>Accepted By</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card p-6 mb-8">
+      <h2 class="text-xl font-bold text-white mb-4">Recent Matches (Algorithm Output)</h2>
+      <div class="overflow-x-auto">
+        <table id="matchesTable">
+          <thead><tr><th>Request ID</th><th>Worker</th><th>Distance</th><th>Score</th><th>Notified At</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function loadData() {
+      try {
+        const [workersRes, requestsRes, matchesRes] = await Promise.all([
+          fetch('/api/workers-all'),
+          fetch('/api/service-requests'),
+          fetch('/api/matches-recent')
+        ]);
+
+        const workers = await workersRes.json();
+        const requests = await requestsRes.json();
+        const matches = await matchesRes.json();
+
+        // Update counts
+        document.getElementById('workerCount').textContent = workers.length;
+        document.getElementById('requestCount').textContent = requests.length;
+        document.getElementById('matchCount').textContent = matches.length;
+        document.getElementById('timestamp').textContent = new Date().toLocaleTimeString();
+
+        // Render workers
+        const workersTbody = document.querySelector('#workersTable tbody');
+        workersTbody.innerHTML = workers.length ? workers.map(w => {
+          const rating = w.ratingCount > 0 ? '<span class="star">★</span> ' + w.rating.toFixed(1) + ' (' + w.ratingCount + ')' : 'No ratings';
+          const status = w.available ? '<span class="text-green-400">Available</span>' : '<span class="text-red-400">Busy</span>';
+          return \`<tr>
+            <td class="font-medium">\${w.name}</td>
+            <td class="font-mono text-sm">\${w.phone}</td>
+            <td>\${w.village}</td>
+            <td>\${w.skill}</td>
+            <td>\${rating}</td>
+            <td>\${status}</td>
+          </tr>\`;
+        }).join('') : '<tr><td colspan="6" class="text-center text-slate-500 py-4">No workers registered</td></tr>';
+
+        // Render requests
+        const requestsTbody = document.querySelector('#requestsTable tbody');
+        requestsTbody.innerHTML = requests.length ? requests.map(r => {
+          const badgeClass = r.status === 'open' ? 'badge-open' : r.status === 'accepted' ? 'badge-accepted' : 'badge-completed';
+          return \`<tr>
+            <td class="font-mono text-sm">\${r.id.slice(-6)}</td>
+            <td>\${r.serviceType}</td>
+            <td>\${r.village}</td>
+            <td>\${r.budget} XAF</td>
+            <td><span class="px-2 py-1 rounded text-xs \${badgeClass}">\${r.status}</span></td>
+            <td class="font-mono text-sm">\${r.acceptedBy || '-'}</td>
+          </tr>\`;
+        }).join('') : '<tr><td colspan="6" class="text-center text-slate-500 py-4">No requests yet</td></tr>';
+
+        // Render matches
+        const matchesTbody = document.querySelector('#matchesTable tbody');
+        matchesTbody.innerHTML = matches.length ? matches.map(m => \`<tr>
+          <td class="font-mono text-sm">\${m.request_id.slice(-6)}</td>
+          <td>\${m.worker_name} (\${m.worker_village})</td>
+          <td>\${m.distance_km.toFixed(1)} km</td>
+          <td class="text-indigo-400 font-bold">\${m.score.toFixed(3)}</td>
+          <td class="text-slate-500 text-xs">\${new Date(m.notified_at).toLocaleTimeString()}</td>
+        </tr>\`).join('') : '<tr><td colspan="5" class="text-center text-slate-500 py-4">No matches yet</td></tr>';
+
+      } catch (err) {
+        console.error('Failed to load data:', err);
+      }
+    }
+
+    loadData();
+    setInterval(loadData, 5000);
+  </script>
+</body>
+</html>
+  `);
+});
+
+// ============================================================
+// DASHBOARD DATA ENDPOINTS
+// ============================================================
+
+app.get('/api/workers-all', (req, res) => {
+  res.json(workersRepo.all());
+});
+
+app.get('/api/matches-recent', (req, res) => {
+  // Get last 20 matches across all requests
+  const allRequests = requestsRepo.all();
+  const allMatches = [];
+  for (const req of allRequests.slice(0, 10)) {
+    const matches = matchesRepo.findByRequest(req.id);
+    allMatches.push(...matches);
+  }
+  // Sort by notified_at desc, take top 20
+  allMatches.sort((a, b) => new Date(b.notified_at) - new Date(a.notified_at));
+  res.json(allMatches.slice(0, 20));
+});
+
+// ============================================================
 // REST API
 // ============================================================
 
