@@ -1,5 +1,5 @@
 // ============================================================
-// AgriMatch Mobile App - Worker Registration & Voice Notes
+// SkillLink Mobile App - Worker Registration, Voice Notes & Ratings
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -35,30 +35,40 @@ const List<String> VILLAGES = [
   'Nkambe',
 ];
 
-const Map<String, String> SKILLS = {
-  'harvesting': 'Harvesting',
-  'planting': 'Planting',
-  'weeding': 'Weeding',
-  'tractor': 'Tractor Operation',
-};
+// ============================================================
+// Data Models
+// ============================================================
+
+class Trade {
+  final String key;
+  final String label;
+  Trade(this.key, this.label);
+}
+
+class TradeCategory {
+  final String key;
+  final String label;
+  final List<Trade> trades;
+  TradeCategory(this.key, this.label, this.trades);
+}
 
 // ============================================================
 // Main App
 // ============================================================
 
 void main() {
-  runApp(const AgriMatchApp());
+  runApp(const SkillLinkApp());
 }
 
-class AgriMatchApp extends StatelessWidget {
-  const AgriMatchApp({super.key});
+class SkillLinkApp extends StatelessWidget {
+  const SkillLinkApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'AgriMatch',
+      title: 'SkillLink',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
       home: const HomeScreen(),
@@ -77,8 +87,8 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AgriMatch'),
-        backgroundColor: Colors.green[700],
+        title: const Text('SkillLink'),
+        backgroundColor: Colors.indigo[700],
         foregroundColor: Colors.white,
       ),
       body: Center(
@@ -87,15 +97,15 @@ class HomeScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.agriculture, size: 80, color: Colors.green),
+              const Icon(Icons.handshake, size: 80, color: Colors.indigo),
               const SizedBox(height: 20),
               const Text(
-                'Welcome to AgriMatch',
+                'Welcome to SkillLink',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               const Text(
-                'Connecting farm workers to jobs',
+                'Connect skilled workers to clients',
                 style: TextStyle(fontSize: 14, color: Colors.grey),
               ),
               const SizedBox(height: 40),
@@ -159,10 +169,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phoneController = TextEditingController();
 
   String? _selectedVillage;
-  String? _selectedSkill;
+  String? _selectedTradeKey;
+  List<TradeCategory> _categories = [];
+  bool _loadingTrades = true;
+  String? _tradeError;
+
   bool _submitting = false;
 
-  // -------- Voice note state --------
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
   String? _recordingPath;
@@ -173,6 +186,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void initState() {
     super.initState();
     _checkPermission();
+    _loadTrades();
   }
 
   @override
@@ -185,9 +199,40 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _checkPermission() async {
     final granted = await _recorder.hasPermission();
-    setState(() => _hasPermission = granted);
-    if (!granted) {
-      print('[Voice] Microphone permission denied');
+    if (mounted) setState(() => _hasPermission = granted);
+  }
+
+  Future<void> _loadTrades() async {
+    try {
+      final response = await http.get(Uri.parse('$API_BASE/api/trades'));
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        final categories = data.map((cat) {
+          final trades = (cat['trades'] as List)
+              .map((t) => Trade(t['key'], t['label']))
+              .toList();
+          return TradeCategory(cat['key'], cat['label'], trades);
+        }).toList();
+
+        if (mounted) {
+          setState(() {
+            _categories = categories;
+            _loadingTrades = false;
+          });
+        }
+      } else {
+        if (mounted)
+          setState(() {
+            _tradeError = 'Failed to load trades';
+            _loadingTrades = false;
+          });
+      }
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          _tradeError = 'Network error: $e';
+          _loadingTrades = false;
+        });
     }
   }
 
@@ -197,11 +242,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _showSnack('Microphone permission not granted');
         return;
       }
-
       final dir = await getTemporaryDirectory();
       final path =
           '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-
       await _recorder.start(
         const RecordConfig(encoder: AudioEncoder.aacLc),
         path: path,
@@ -212,7 +255,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _recordingPath = null;
         _recordSeconds = 0;
       });
-
       _tickTimer();
     } catch (e) {
       _showSnack('Failed to start recording: $e');
@@ -222,9 +264,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void _tickTimer() async {
     while (_isRecording && mounted) {
       await Future.delayed(const Duration(seconds: 1));
-      if (_isRecording && mounted) {
-        setState(() => _recordSeconds++);
-      }
+      if (_isRecording && mounted) setState(() => _recordSeconds++);
     }
   }
 
@@ -235,22 +275,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _isRecording = false;
         _recordingPath = path;
       });
-      if (path != null) {
-        print('[Voice] Recorded to: $path');
-        _showSnack('Voice note recorded ($_recordSeconds s)');
-      }
+      if (path != null) _showSnack('Voice note recorded ($_recordSeconds s)');
     } catch (e) {
       _showSnack('Failed to stop recording: $e');
-    }
-  }
-
-  Future<void> _playRecording() async {
-    if (_recordingPath == null) return;
-    try {
-      final player = AudioPlayer();
-      await player.play(DeviceFileSource(_recordingPath!));
-    } catch (e) {
-      _showSnack('Playback error: $e');
     }
   }
 
@@ -267,34 +294,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _uploadVoiceNote(String phone) async {
-    if (_recordingPath == null) {
-      print('[Voice] No recording to upload — path is null');
-      return;
-    }
-
-    print('[Voice] Starting upload: phone=$phone path=$_recordingPath');
-
+    if (_recordingPath == null) return;
     try {
-      // URL-encode the phone so '+' is safely transmitted as %2B
       final encodedPhone = Uri.encodeComponent(phone);
       final uri = Uri.parse('$API_BASE/api/voice-notes/$encodedPhone');
-      print('[Voice] Upload URL: $uri');
-
       final request = http.MultipartRequest('POST', uri);
-
       request.fields['duration'] = _recordSeconds.toString();
       request.files.add(
         await http.MultipartFile.fromPath('audio', _recordingPath!),
       );
-
       final response = await request.send();
       final body = await response.stream.bytesToString();
-
-      if (response.statusCode == 201) {
-        print('[Voice] SUCCESS: $body');
-      } else {
-        print('[Voice] FAILED: status=${response.statusCode} body=$body');
-      }
+      print('[Voice] status=${response.statusCode} body=$body');
     } catch (e) {
       print('[Voice] ERROR: $e');
     }
@@ -302,8 +313,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedVillage == null || _selectedSkill == null) {
-      _showSnack('Please select village and skill');
+    if (_selectedVillage == null || _selectedTradeKey == null) {
+      _showSnack('Please select village and trade');
       return;
     }
 
@@ -318,18 +329,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
           'phone': phone,
           'name': _nameController.text.trim(),
           'village': _selectedVillage,
-          'skill': _selectedSkill,
+          'skill': _selectedTradeKey,
         }),
       );
 
       if (!mounted) return;
 
       if (response.statusCode == 201) {
-        // Upload voice note if one was recorded
-        if (_recordingPath != null) {
-          await _uploadVoiceNote(phone);
-        }
-
+        if (_recordingPath != null) await _uploadVoiceNote(phone);
         if (!mounted) return;
         _showSnack('Registration successful!');
         Navigator.pop(context);
@@ -351,103 +358,152 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Register as Worker'),
-        backgroundColor: Colors.green[700],
+        backgroundColor: Colors.indigo[700],
         foregroundColor: Colors.white,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Full Name',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.person),
-                ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Enter your name' : null,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _phoneController,
-                decoration: const InputDecoration(
-                  labelText: 'Phone Number',
-                  hintText: '+2376XXXXXXXX',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.phone),
-                ),
-                keyboardType: TextInputType.phone,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Enter your phone' : null,
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _selectedVillage,
-                decoration: const InputDecoration(
-                  labelText: 'Village',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.location_on),
-                ),
-                items: VILLAGES
-                    .map((v) => DropdownMenuItem(value: v, child: Text(v)))
-                    .toList(),
-                onChanged: (v) => setState(() => _selectedVillage = v),
-                validator: (v) => v == null ? 'Select your village' : null,
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _selectedSkill,
-                decoration: const InputDecoration(
-                  labelText: 'Main Skill',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.work),
-                ),
-                items: SKILLS.entries
-                    .map(
-                      (e) =>
-                          DropdownMenuItem(value: e.key, child: Text(e.value)),
-                    )
-                    .toList(),
-                onChanged: (v) => setState(() => _selectedSkill = v),
-                validator: (v) => v == null ? 'Select your skill' : null,
-              ),
-              const SizedBox(height: 24),
-              _buildVoiceNoteSection(),
-              const SizedBox(height: 24),
-              SizedBox(
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _submitting ? null : _submit,
-                  child: _submitting
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('Register', style: TextStyle(fontSize: 16)),
+      body: _loadingTrades
+          ? const Center(child: CircularProgressIndicator())
+          : _tradeError != null
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Text(
+                  _tradeError!,
+                  style: const TextStyle(color: Colors.red),
                 ),
               ),
-            ],
+            )
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextFormField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Full Name',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.person),
+                      ),
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Enter your name'
+                          : null,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _phoneController,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone Number',
+                        hintText: '+2376XXXXXXXX',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.phone),
+                      ),
+                      keyboardType: TextInputType.phone,
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Enter your phone'
+                          : null,
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      value: _selectedVillage,
+                      decoration: const InputDecoration(
+                        labelText: 'Village',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.location_on),
+                      ),
+                      items: VILLAGES
+                          .map(
+                            (v) => DropdownMenuItem(value: v, child: Text(v)),
+                          )
+                          .toList(),
+                      onChanged: (v) => setState(() => _selectedVillage = v),
+                      validator: (v) =>
+                          v == null ? 'Select your village' : null,
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      value: _selectedTradeKey,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Trade / Service',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.work),
+                      ),
+                      items: _buildTradeMenuItems(),
+                      onChanged: (v) => setState(() => _selectedTradeKey = v),
+                      validator: (v) => v == null ? 'Select your trade' : null,
+                    ),
+                    const SizedBox(height: 24),
+                    _buildVoiceNoteSection(),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: _submitting ? null : _submit,
+                        child: _submitting
+                            ? const CircularProgressIndicator(
+                                color: Colors.white,
+                              )
+                            : const Text(
+                                'Register',
+                                style: TextStyle(fontSize: 16),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+    );
+  }
+
+  List<DropdownMenuItem<String>> _buildTradeMenuItems() {
+    final items = <DropdownMenuItem<String>>[];
+    for (final cat in _categories) {
+      items.add(
+        DropdownMenuItem<String>(
+          enabled: false,
+          value: '__header_${cat.key}',
+          child: Text(
+            cat.label,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.indigo,
+            ),
           ),
         ),
-      ),
-    );
+      );
+      for (final trade in cat.trades) {
+        items.add(
+          DropdownMenuItem<String>(
+            value: trade.key,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 12),
+              child: Text(trade.label),
+            ),
+          ),
+        );
+      }
+    }
+    return items;
   }
 
   Widget _buildVoiceNoteSection() {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.green.shade300),
+        border: Border.all(color: Colors.indigo.shade300),
         borderRadius: BorderRadius.circular(8),
-        color: Colors.green.shade50,
+        color: Colors.indigo.shade50,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Row(
             children: [
-              Icon(Icons.mic, color: Colors.green),
+              Icon(Icons.mic, color: Colors.indigo),
               SizedBox(width: 8),
               Text(
                 'Voice Note (Optional)',
@@ -457,7 +513,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Record a short introduction. Farmers can listen to it.',
+            'Record a short introduction. Clients can listen to it.',
             style: TextStyle(fontSize: 12, color: Colors.black54),
           ),
           const SizedBox(height: 16),
@@ -493,11 +549,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 Text('Recorded ($_recordSeconds s)'),
                 const Spacer(),
                 IconButton(
-                  icon: const Icon(Icons.play_arrow, color: Colors.green),
-                  onPressed: _playRecording,
-                  tooltip: 'Play',
-                ),
-                IconButton(
                   icon: const Icon(Icons.delete, color: Colors.red),
                   onPressed: _deleteRecording,
                   tooltip: 'Delete',
@@ -520,7 +571,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 }
 
 // ============================================================
-// SCREEN 3: Check Status (with voice note playback)
+// SCREEN 3: Check Status
 // ============================================================
 
 class StatusScreen extends StatefulWidget {
@@ -532,18 +583,14 @@ class StatusScreen extends StatefulWidget {
 
 class _StatusScreenState extends State<StatusScreen> {
   final _phoneController = TextEditingController();
-  final AudioPlayer _player = AudioPlayer();
-
   Map<String, dynamic>? _worker;
   Map<String, dynamic>? _voiceNote;
   bool _loading = false;
-  bool _playing = false;
   String? _error;
 
   @override
   void dispose() {
     _phoneController.dispose();
-    _player.dispose();
     super.dispose();
   }
 
@@ -592,33 +639,100 @@ class _StatusScreenState extends State<StatusScreen> {
       if (response.statusCode == 200) {
         setState(() => _voiceNote = jsonDecode(response.body));
       }
-    } catch (_) {
-      // Ignore errors — voice note is optional
-    }
+    } catch (_) {}
   }
 
-  Future<void> _togglePlay() async {
-    if (_voiceNote == null) return;
+  Future<void> _showRatingDialog() async {
+    if (_worker == null) return;
+    final phone = _worker!['phone'] as String;
 
-    final filename = _voiceNote!['filePath'];
-    final url = '$API_BASE/api/voice-notes/audio/$filename';
+    int selectedStars = 5;
+
+    final result = await showDialog<int>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Rate this worker'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('How was your experience?'),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(5, (index) {
+                      final starValue = index + 1;
+                      return IconButton(
+                        iconSize: 40,
+                        icon: Icon(
+                          starValue <= selectedStars
+                              ? Icons.star
+                              : Icons.star_border,
+                          color: Colors.amber,
+                        ),
+                        onPressed: () {
+                          setDialogState(() => selectedStars = starValue);
+                        },
+                      );
+                    }),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, null),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, selectedStars),
+                  child: const Text('Submit'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == null) return;
 
     try {
-      if (_playing) {
-        await _player.stop();
-        setState(() => _playing = false);
-      } else {
-        await _player.play(UrlSource(url));
-        setState(() => _playing = true);
+      final encodedPhone = Uri.encodeComponent(phone);
+      final response = await http.post(
+        Uri.parse('$API_BASE/api/workers/$encodedPhone/rate'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'rating': result}),
+      );
 
-        _player.onPlayerComplete.listen((_) {
-          if (mounted) setState(() => _playing = false);
-        });
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final updated = jsonDecode(response.body)['worker'];
+        setState(() => _worker = updated);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Rating submitted: $result star${result > 1 ? 's' : ''}',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        final error = jsonDecode(response.body)['error'] ?? 'Rating failed';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red),
+        );
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Playback error: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Network error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -627,7 +741,7 @@ class _StatusScreenState extends State<StatusScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Check My Status'),
-        backgroundColor: Colors.green[700],
+        backgroundColor: Colors.indigo[700],
         foregroundColor: Colors.white,
       ),
       body: Padding(
@@ -676,6 +790,12 @@ class _StatusScreenState extends State<StatusScreen> {
   }
 
   Widget _buildWorkerCard(Map<String, dynamic> worker) {
+    final rating = worker['rating'] ?? 0;
+    final ratingCount = worker['ratingCount'] ?? 0;
+    final ratingText = ratingCount > 0
+        ? '${rating.toStringAsFixed(1)} ⭐ ($ratingCount review${ratingCount > 1 ? 's' : ''})'
+        : 'No ratings yet';
+
     return Card(
       elevation: 4,
       child: Padding(
@@ -685,7 +805,7 @@ class _StatusScreenState extends State<StatusScreen> {
           children: [
             Row(
               children: [
-                const Icon(Icons.person, color: Colors.green, size: 32),
+                const Icon(Icons.person, color: Colors.indigo, size: 32),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
@@ -701,7 +821,9 @@ class _StatusScreenState extends State<StatusScreen> {
             const Divider(height: 24),
             _infoRow(Icons.location_on, 'Village', worker['village'] ?? '-'),
             const SizedBox(height: 8),
-            _infoRow(Icons.work, 'Skill', worker['skill'] ?? '-'),
+            _infoRow(Icons.work, 'Trade', _formatTrade(worker['skill'] ?? '-')),
+            const SizedBox(height: 8),
+            _infoRow(Icons.star, 'Rating', ratingText),
             const SizedBox(height: 8),
             _infoRow(
               Icons.check_circle,
@@ -710,55 +832,62 @@ class _StatusScreenState extends State<StatusScreen> {
             ),
             if (_voiceNote != null) ...[
               const Divider(height: 24),
-              _buildVoiceNotePlayer(),
+              Row(
+                children: [
+                  const Icon(Icons.audiotrack, color: Colors.indigo),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Voice introduction on file',
+                      style: TextStyle(fontStyle: FontStyle.italic),
+                    ),
+                  ),
+                ],
+              ),
             ],
+            const Divider(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _showRatingDialog,
+                icon: const Icon(Icons.star),
+                label: const Text('Rate this worker'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.amber[800],
+                  side: BorderSide(color: Colors.amber[800]!),
+                ),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildVoiceNotePlayer() {
-    return Row(
-      children: [
-        Icon(
-          _playing ? Icons.stop_circle : Icons.play_circle,
-          color: Colors.green,
-          size: 40,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Voice Introduction',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              Text(
-                _playing ? 'Playing...' : 'Tap to play',
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
-              ),
-            ],
-          ),
-        ),
-        IconButton(
-          icon: Icon(
-            _playing ? Icons.stop : Icons.play_arrow,
-            color: Colors.green,
-          ),
-          onPressed: _togglePlay,
-        ),
-      ],
-    );
+  String _formatTrade(String skillKey) {
+    if (skillKey.isEmpty) return '-';
+    return skillKey
+        .split('_')
+        .map(
+          (part) =>
+              part.isEmpty ? '' : part[0].toUpperCase() + part.substring(1),
+        )
+        .join(' ');
   }
 
   Widget _infoRow(IconData icon, String label, String value) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(icon, size: 20, color: Colors.grey[700]),
         const SizedBox(width: 12),
-        Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w600)),
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label: ',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
         Expanded(child: Text(value)),
       ],
     );
