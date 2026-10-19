@@ -168,7 +168,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final user = User.fromJson(data['user']);
-        
+
         if (user.role == 'worker') {
           Navigator.pushReplacement(
             context,
@@ -447,12 +447,60 @@ class _RegisterScreenState extends State<RegisterScreen> {
 // WORKER DASHBOARD
 // ============================================================
 
-class WorkerDashboard extends StatelessWidget {
+class WorkerDashboard extends StatefulWidget {
   final User user;
   const WorkerDashboard({super.key, required this.user});
 
   @override
+  State<WorkerDashboard> createState() => _WorkerDashboardState();
+}
+
+class _WorkerDashboardState extends State<WorkerDashboard> {
+  late bool _available;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _available = widget.user.available;
+  }
+
+  Future<void> _toggleAvailability() async {
+    setState(() => _loading = true);
+    try {
+      final encodedPhone = Uri.encodeComponent(widget.user.phone);
+      final response = await http.post(Uri.parse('$API_BASE/api/workers/$encodedPhone/toggle'));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _available = data['available'];
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_available ? 'You are now Available' : 'You are now Busy'),
+              backgroundColor: _available ? Colors.green : Colors.orange,
+            ),
+          );
+        }
+      } else {
+        throw Exception('Failed to toggle');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final user = widget.user;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Worker Dashboard'),
@@ -489,7 +537,54 @@ class WorkerDashboard extends StatelessWidget {
                     _row('Village', user.village ?? '-'),
                     _row('Phone', user.phone),
                     _row('Rating', '${user.rating.toStringAsFixed(1)} ⭐ (${user.ratingCount})'),
-                    _row('Status', user.available ? 'Available' : 'Busy'),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text('Availability', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            Card(
+              elevation: 4,
+              color: _available ? Colors.green.shade50 : Colors.orange.shade50,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    Icon(
+                      _available ? Icons.check_circle : Icons.do_not_disturb_on,
+                      color: _available ? Colors.green : Colors.orange,
+                      size: 50,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      _available ? 'Available for Work' : 'Currently Busy',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _available ? Colors.green : Colors.orange,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _available ? 'You will appear in the client marketplace' : 'You are hidden from clients',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: _loading ? null : _toggleAvailability,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _available ? Colors.orange : Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: _loading
+                            ? const CircularProgressIndicator(color: Colors.white)
+                            : Text(_available ? 'Set as Busy' : 'Set as Available'),
+                      ),
+                    ),
                   ],
                 ),
               ),

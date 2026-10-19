@@ -140,8 +140,38 @@ app.post('/api/login', (req, res) => {
 
 // Get all available workers (for Clients to browse)
 app.get('/api/workers', (req, res) => {
-  const workers = usersRepo.allWorkers();
-  res.json(workers);
+  const all = usersRepo.allWorkers();
+  // Only show available workers to clients
+  const available = all.filter(w => w.available === true);
+  res.json(available);
+});
+
+// Toggle availability
+app.post('/api/workers/*phone/toggle', (req, res) => {
+  const wildcard = req.params.phone;
+  const rawPhone = Array.isArray(wildcard) ? wildcard.join('/') : wildcard;
+  const decoded = decodeURIComponent(rawPhone);
+  const phone = normalizePhone(decoded);
+
+  const user = usersRepo.findByPhone(phone);
+  if (!user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const newStatus = !user.available;
+  
+  // Update the user's availability
+  usersRepo.upsert({
+    ...user,
+    available: newStatus
+  });
+
+  console.log(`[API] ${user.name} toggled availability → ${newStatus ? 'Available' : 'Busy'}`);
+  res.json({ 
+    message: 'Availability updated', 
+    available: newStatus, 
+    user: usersRepo.findByPhone(phone) 
+  });
 });
 
 // Get one worker's profile
